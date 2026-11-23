@@ -50,6 +50,8 @@ export interface Environment {
   hug: number;
   zoom: number;
   alpha: number;
+  camX: number;
+  camY: number;
 }
 
 export interface Frame {
@@ -129,6 +131,8 @@ export function targetFor(action: Action): Frame {
       hug: 0,
       zoom: 1,
       alpha: 1,
+      camX: 0,
+      camY: 0,
     },
   };
 
@@ -226,6 +230,8 @@ export function targetFor(action: Action): Frame {
       env.hug = 0.9;
       env.hearts = 0.3;
       env.sun = 0.15;
+      env.camY = -28;
+      env.zoom = 1.15;
       break;
 
     case "leaving":
@@ -236,6 +242,8 @@ export function targetFor(action: Action): Frame {
       b.alpha = 0.45;
       b.walk = 1;
       b.look = 5;
+      env.camX = 35;
+      env.camY = -10;
       break;
 
     case "neglected":
@@ -245,6 +253,8 @@ export function targetFor(action: Action): Frame {
       b.x = 750;
       b.alpha = 0;
       env.rain = 0.15;
+      env.camX = 40;
+      env.camY = -15;
       break;
 
     case "sky":
@@ -256,7 +266,8 @@ export function targetFor(action: Action): Frame {
       a.sad = 0.7;
       b.alpha = 0;
       env.stars = 1;
-      env.zoom = 1.025;
+      env.zoom = 1.08;
+      env.camY = -130;
       env.mist = action === "mist" ? 1 : 0;
       break;
 
@@ -376,6 +387,8 @@ export function targetFor(action: Action): Frame {
     case "thought":
     case "dream":
       env.thought = action === "dream" ? 1 : 0.65;
+      env.camY = -140;
+      env.zoom = 1.12;
       a.head = -12;
       a.look = 3;
       b.alpha = action === "dream" ? 0 : 0.4;
@@ -392,6 +405,9 @@ export function targetFor(action: Action): Frame {
     case "lap":
       env.bench = 1;
       env.sun = 0.18;
+      env.camX = -15;
+      env.camY = -22;
+      env.zoom = 1.18;
       b.x = 445;
       b.y = 915;
       b.sit = 1;
@@ -427,6 +443,8 @@ export function targetFor(action: Action): Frame {
       env.hug = 1;
       env.sun = 1;
       env.hearts = 0.8;
+      env.camY = -25;
+      env.zoom = 1.15;
       break;
 
     case "window":
@@ -436,6 +454,8 @@ export function targetFor(action: Action): Frame {
       env.curtains = 1;
       env.sun = 0.25;
       env.hearts = 0.12;
+      env.camY = 15;
+      env.zoom = 1.02;
       a.x = 290;
       b.x = 435;
       a.back = 1;
@@ -454,6 +474,8 @@ export function targetFor(action: Action): Frame {
       env.snow = 1;
       env.cold = 0.7;
       env.bench = 1;
+      env.camY = -15;
+      env.zoom = 1.06;
       a.x = 290;
       b.x = 435;
       a.y = 915;
@@ -583,14 +605,18 @@ export function beatsFor(action: Action, seconds: number): Beat[] {
 
   if (action === "tail") {
     const distant = cloneFrame(target);
-    distant.env.zoom = 0.97;
+    distant.env.zoom = 0.78;
+    distant.env.camY = 75;
     distant.env.snow = 0.4;
+    distant.env.stars = 1;
 
     const gone = cloneFrame(distant);
     gone.env.alpha = 0;
+    gone.env.zoom = 0.72;
+    gone.env.camY = 110;
 
     return [
-      { at: 0.2, frame: target },
+      { at: 0.15, frame: target },
       { at: 0.6, frame: distant },
       { at: 1, frame: gone },
     ];

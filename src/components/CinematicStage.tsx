@@ -165,11 +165,28 @@ export const CinematicStage = memo(function CinematicStage({
       opacity("letter", env.letter);
       opacity("title", env.title);
 
+      const cx = env.camX ?? 0;
+      const cy = env.camY ?? 0;
+
+      nodes.moon!.setAttribute(
+        "transform",
+        `translate(${-cx * 0.1} ${-cy * 0.08})`,
+      );
+      nodes.sun!.setAttribute(
+        "transform",
+        `translate(${-cx * 0.1} ${-cy * 0.08})`,
+      );
+
+      nodes.room!.setAttribute(
+        "transform",
+        `translate(${-cx * 0.45} ${-cy * 0.4})`,
+      );
       nodes.window!.setAttribute(
         "transform",
-        `translate(0 ${env.windowY})`,
+        `translate(${-cx * 0.6} ${env.windowY - cy * 0.55})`,
       );
-      nodes.hole!.setAttribute("y", String(145 + env.windowY));
+      nodes.hole!.setAttribute("x", String(185 - cx * 0.6));
+      nodes.hole!.setAttribute("y", String(145 + env.windowY - cy * 0.55));
 
       nodes.curtainA!.setAttribute(
         "transform",
@@ -182,15 +199,18 @@ export const CinematicStage = memo(function CinematicStage({
 
       const drift = reduced ? 0 : Math.sin(time * 0.035) * 25;
 
-      nodes.cloudA!.setAttribute("transform", `translate(${drift} 0)`);
+      nodes.cloudA!.setAttribute(
+        "transform",
+        `translate(${drift - cx * 0.22} ${-cy * 0.18})`,
+      );
       nodes.cloudB!.setAttribute(
         "transform",
-        `translate(${-drift * 0.6} 0)`,
+        `translate(${-drift * 0.6 - cx * 0.22} ${-cy * 0.18})`,
       );
 
       nodes.camera!.setAttribute(
         "transform",
-        `translate(360 870) scale(${env.zoom}) translate(-360 -870)`,
+        `translate(${360 - cx} ${870 - cy}) scale(${env.zoom}) translate(-360 -870)`,
       );
 
       const phone = worldPoint(frame.b, 0, -65);

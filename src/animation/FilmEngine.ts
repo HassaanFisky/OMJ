@@ -103,6 +103,8 @@ export class FilmEngine {
 
     if (reduced) {
       frame.env.zoom = 1;
+      frame.env.camX = 0;
+      frame.env.camY = 0;
 
       if (shot.action === "tail") {
         frame.env.alpha = 1 - frame.progress;
