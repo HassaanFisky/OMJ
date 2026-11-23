@@ -63,17 +63,26 @@ export function IntroScreen({
   return (
     <section className="entrance" aria-labelledby="omj-title">
       <svg className="entrance-emblem" viewBox="0 0 60 60" aria-hidden="true">
-        <circle cx="30" cy="30" r="27" fill="none"
-          stroke="currentColor" strokeWidth=".7" opacity=".25" />
+        <circle
+          cx="30"
+          cy="30"
+          r="27"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth=".7"
+          opacity=".25"
+        />
         <path
           d="M39 14C20 15 16 36 33 44C18 43 11 29 18 20C23 12 33 10 39 14Z"
           fill="currentColor"
         />
-        <path d="m43 25 2 5 5 2-5 2-2 5-2-5-5-2 5-2Z"
-          fill="currentColor" />
+        <path
+          d="m43 25 2 5 5 2-5 2-2 5-2-5-5-2 5-2Z"
+          fill="currentColor"
+        />
       </svg>
 
-      <p className="eyebrow">an illustrated music film</p>
+      <p className="eyebrow">an illustrated cinematic film</p>
       <h1 id="omj-title">OMJ</h1>
       <p className="subtitle">O Meri Jaan</p>
       <span className="title-rule" />
@@ -104,7 +113,7 @@ export function IntroScreen({
       </div>
 
       {draft && (
-        <p className="draft-indicator">Lyric timing is provisional</p>
+        <p className="draft-indicator">Timing is provisional</p>
       )}
 
       <p className="local-note">A chosen file stays on this device.</p>
@@ -116,6 +125,11 @@ export function IntroScreen({
   );
 }
 
+/**
+ * Discreet Cinematic Controls
+ * Replaces the conventional heavy music-player seekbar/dashboard with an unobtrusive,
+ * floating glass pill meeting WCAG 44x44px touch targets.
+ */
 export function AudioPlayer({
   controller,
   snapshot,
@@ -141,55 +155,41 @@ export function AudioPlayer({
   }, []);
 
   return (
-    <section className="player" aria-label="Playback controls">
+    <section className="player cinematic-controls" aria-label="Playback controls">
       <div className="player-row">
         <button
           ref={playButton}
           className="icon-button"
-          onClick={() => playing ? controller.pause() : onPlay()}
+          onClick={() => (playing ? controller.pause() : onPlay())}
           aria-label={playing ? "Pause" : "Resume"}
         >
           <Icon name={playing ? "pause" : "play"} />
         </button>
 
-        <time>{formatTime(snapshot.time)}</time>
-
-        <label className="seek">
-          <span className="sr-only">Seek</span>
-          <input
-            type="range"
-            aria-label="Seek"
-            min="0"
-            max={snapshot.duration || 1}
-            step="0.01"
-            value={Math.min(snapshot.time, snapshot.duration || 1)}
-            disabled={!ready}
-            onChange={(event) =>
-              controller.seek(Number(event.currentTarget.value))
-            }
-            aria-valuetext={
-              `${formatTime(snapshot.time)} of ${formatTime(snapshot.duration)}`
-            }
-          />
-        </label>
-
-        <time>{formatTime(snapshot.duration)}</time>
-
         <button
           className="icon-button"
           onClick={onReplay}
           aria-label="Replay"
+          disabled={!ready}
         >
           <Icon name="replay" />
         </button>
-      </div>
 
-      <div className="player-subrow">
-        <button onClick={onTranscript}>Lyrics</button>
-        <span>
-          {snapshot.status === "waiting" ? "Buffering…" : "O Meri Jaan"}
-        </span>
-        <button onClick={onClose}>Close</button>
+        <button
+          className="icon-button"
+          onClick={onTranscript}
+          aria-label="Lyrics transcript"
+        >
+          <span className="control-text-icon">Aa</span>
+        </button>
+
+        <button
+          className="icon-button"
+          onClick={onClose}
+          aria-label="Close"
+        >
+          <Icon name="close" />
+        </button>
       </div>
     </section>
   );

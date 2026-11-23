@@ -328,21 +328,32 @@ h1 {
   position: absolute;
   z-index: 20;
   left: 50%;
-  bottom: calc(env(safe-area-inset-bottom, 0px) + 11px);
-  width: min(calc(100% - 26px), 590px);
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 16px);
+  width: auto;
   transform: translateX(-50%);
-  padding: 6px 8px 0;
-  border: 1px solid #cbb2cc2e;
-  border-radius: 21px;
+  padding: 4px 12px;
+  border: 1px solid rgba(220, 195, 230, 0.24);
+  border-radius: 999px;
   color: #f3e4e4;
-  background: #262133f5;
-  box-shadow: 0 10px 30px #0b0a182b;
+  background: rgba(30, 24, 42, 0.72);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 10px 32px rgba(8, 6, 18, 0.38);
+  transition: opacity 0.3s ease, transform 0.3s ease;
 }
 
 .player-row {
   display: flex;
   align-items: center;
-  gap: 7px;
+  justify-content: center;
+  gap: 8px;
+}
+
+.control-text-icon {
+  font-family: Georgia, serif;
+  font-size: 14px;
+  font-weight: 600;
+  color: #e5cfe6;
 }
 
 .icon-button {
