@@ -55,6 +55,8 @@ type JointName =
   | "mouth"
   | "tears"
   | "backSeam"
+  | "belly"
+  | "backTorsoSeam"
   | "warm"
   | "leftArm"
   | "rightArm"
@@ -76,7 +78,7 @@ export function createBearPainter(root: SVGGElement) {
 
   const jointNames: JointName[] = [
     "head", "face", "eyes", "closedEyes", "mouth", "tears",
-    "backSeam", "warm",
+    "backSeam", "belly", "backTorsoSeam", "warm",
     "leftArm", "rightArm", "leftForearm", "rightForearm",
     "leftLeg", "rightLeg", "leftFoot", "rightFoot",
   ];
@@ -175,6 +177,8 @@ export function createBearPainter(root: SVGGElement) {
     // back = 0 → facing camera normally
     nodes.face.setAttribute("opacity", String(1 - pose.back));
     nodes.backSeam.setAttribute("opacity", String(pose.back * 0.65));
+    nodes.belly.setAttribute("opacity", String(1 - pose.back));
+    nodes.backTorsoSeam.setAttribute("opacity", String(pose.back * 0.75));
     nodes.warm.setAttribute("opacity", String(warmth * 0.28));
 
     // Dynamic emotional mouth curvature

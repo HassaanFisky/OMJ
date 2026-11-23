@@ -1,40 +1,78 @@
-# OMJ — ANTIGRAVITY ENGINEERING HANDOFF & AUTONOMOUS DIRECTIVE
-
-## 1. Project Overview & Architecture Status
-- **Root Repository:** `https://github.com/HassaanFisky/OMJ`
-- **Active Branch:** `feat/omj-living-storybook-reconstruction`
-- **Starting Commit:** `50c4661`
-- **Application Engine:** React 19 + TypeScript + Vite + GSAP + HTML5 Canvas.
-- **Audio System:** Native `HTMLAudioElement` with fallback visual preview mode; asset stored in `public/audio/omj.m4a` and referenced in `.env`.
-- **Quality Benchmarks:**
-  - `npm run typecheck` (`tsc --noEmit`): 0 errors.
-  - `npm run test` (`vitest run`): 12 of 12 unit tests passing (0 failures).
-  - `npm run build`: Production bundle optimized in `dist/`.
-  - Local Dev Server: Active on `http://127.0.0.1:4179/`.
+# Antigravity Handoff: OMJ — Living Storybook
+**Status:** Completed (Stage 4 of 4: Final Reconstruction & Quality Completion)  
+**Last Updated:** November 23, 2026  
+**Repository:** https://github.com/HassaanFisky/OMJ  
+**Production URL:** https://omj-iota.vercel.app  
+**Git Branch:** `main`
 
 ---
 
-## 2. File & Documentation Architecture
-- **Engineering & Creative Bibles:**
-  - `OMJ_DESIGN_BIBLE.md` -> Colors, lighting, mobile-first viewports (393×852).
-  - `CHARACTER_BIBLE.md` -> Chubby plush teddy anatomy, velvet textures, facial emotional states.
-  - `SCENE_BIBLE.md` -> Storyboard scenes A through Q + creative transition motifs.
-  - `MOTION_BIBLE.md` -> GSAP easing, 60fps transform conventions, Canvas weather particle engines.
-  - `OMJ_FINAL_AUDIT.md` -> Classification of 16 audit findings (Resolved/Corrected).
-  - `OMJ_IMPLEMENTATION_REPORT.md` -> Complete reconstruction log and telemetry.
-  - `OMJ_VISUAL_QA.md` -> Viewport matrix, contact mechanics, and accessibility standards.
-- **Core Engine & Character Rigs:**
-  - `src/characters/BearRig.tsx`: Layered SVG character rigs for both male and female plush teddies with multi-layered specular eyes, cheek blush, ear positions, and limb animations.
-  - `src/characters/BearAnimations.ts`: Upgraded two-bone IK arm solver, dual-phase organic blinking, emotional mouth arching, and glistening teardrop physics.
-  - `src/animation/FilmEngine.ts`: Master timeline controller orchestrating camera framing, character placement, and environmental crossfades.
-  - `src/animation/ParticleEngine.ts`: Canvas weather simulator with Firefly Guide, rain puddle ripples, snowflakes, floating hearts, and twinkling stardust.
-  - `src/components/CinematicStage.tsx`: Responsive viewport container enforcing letterboxed mobile-first viewing without layout shifting.
-  - `src/components/Controls.tsx`: Discreet, accessible floating glass pill controls meeting 44×44px touch targets.
+## 1. Project Overview
+
+OMJ ("O Meri Jaan") is a cinematic animated experience featuring two plush teddy characters, Mochi (honey/cream) and Yume (lavender/rose), moving through an emotional narrative synchronized to audio and lyrics.
+
+The experience is engineered as a zero-dependency HTML5 Canvas + SVG animation film engine built with React 19, TypeScript, and Vite.
 
 ---
 
-## 3. Autonomous Verification Instructions for Future Agents
-1. Inspect `src/timeline/scenes.ts` to ensure scene metadata matches Scenes A through Q.
-2. Confirm zero conventional player clutter (no seekbars or time counters during cinematic playback).
-3. Validate iPhone 14 Pro touch targets (minimum 44×44px).
-4. Run `npm test` and `npm run build` before pushing any update to remote.
+## 2. Key Architecture & Components
+
+```
+OMJ/
+├── src/
+│   ├── animation/
+│   │   ├── FilmEngine.ts        # Dynamic continuous film timeline sampler with 2.5D virtual camera
+│   │   └── ParticleEngine.ts    # Multi-emitter canvas particle system (rain, snow, hearts, fireflies, mist)
+│   ├── audio/
+│   │   └── AudioController.ts   # Audio playback, RAF tick synchronization, and event dispatch
+│   ├── characters/
+│   │   ├── BearAnimations.ts    # Analytical 2-bone IK arm solver, eye blink cycles, back seam & belly opacity
+│   │   └── BearRig.tsx          # Layered SVG character rig (plush textures, eyes, blush, seams, paws)
+│   ├── components/
+│   │   ├── CinematicStage.tsx   # Core stage: responsive dynamic viewBox, wooden bed, quilt, window, snow globe
+│   │   ├── Controls.tsx         # Floating frosted glass transport controls (play, seek, mute, replay)
+│   │   ├── Entrance.tsx         # Audio file selector and entry curtain
+│   │   ├── LyricsDisplay.tsx    # Uppercase karaoke captions with word-level highlight and bottom pill styling
+│   │   ├── Transcript.tsx       # Accessibility transcript with 43 cue definitions
+│   │   └── Topbar.tsx           # Minimal branding header and audio status
+│   ├── timeline/
+│   │   ├── scenes.ts            # Poses, character coordinates, arm targets, and environment states per scene
+│   │   └── score.ts             # 43 timed lyric cues, actions, and validation logic
+│   └── styles.css               # Design system, glassmorphism, responsive media queries, safe areas
+├── tests/
+│   ├── film.unit.test.ts        # Vitest suite for score validation, IK positioning, lap-rest math
+│   └── player.spec.ts           # Playwright end-to-end tests for desktop and mobile viewports
+└── scripts/
+    └── capture_critique_scenes.js # Automated Playwright multi-scene screenshot capture script
+```
+
+---
+
+## 3. Current Verification Status
+
+- **Typecheck:** `npm run typecheck` → 0 errors
+- **Unit Tests:** `npm run test` (Vitest) → 12/12 passed
+- **Production Build:** `npm run build` (Vite) → clean build (`dist/index.html`, `dist/assets/`)
+- **End-to-End Suite:** `npx playwright test --project=desktop` → 6/6 passed
+- **Visual QA:** Multi-scene screenshots verified for desktop (1440×900) and mobile (393×852)
+
+---
+
+## 4. Key Highlights of Stage 4 Fixes
+
+1. **Responsive ViewBox (No Vertical Cropping):** Replaced `preserveAspectRatio="xMidYMid slice"` with dynamic SVG viewBox expansion. Widescreen displays horizontally extend scenery without cutting off characters or the wooden bed at the bottom.
+2. **Anatomical Lap-Rest:** Corrected rotation and translation geometry (`a.x = b.x - 22 - 150 * a.scale`, `a.y = b.y - 12`) so Teddy A's head rests squarely on B's lap with a comforting arm caress.
+3. **True Back-Facing Characters:** Implemented seamless back view where front belly patch fades out, back spine seams become visible, and paws rest naturally at sides.
+4. **Natural Arm Contacts:** Added explicit IK paw targets for kissing (arms reaching together) and embracing (full wrap-around hug).
+5. **Architectural Wooden Bed:** Turned posts, carved headboard, quilted mattress, and dual pillows anchor the bedtime scenes.
+6. **Ornate Snow Globe Climax:** Dynamic pull-back camera reveals the miniature imaginary universe enclosed within an ornate glass snow globe with wooden mahogany tier and brass plaque.
+7. **Uppercase Bottom Karaoke Captions:** Captions anchor at bottom center safe area with golden glow highlight and full uppercase typography.
+8. **Discreet Floating Controls:** Player pill repositioned to avoid intercepting topbar clicks.
+
+---
+
+## 5. Next Recommended Steps (Optional Polish)
+
+- **Actual Audio Asset Verification:** When official mastered audio is provided, calibrate cue millisecond timestamps for precise lip/karaoke matching.
+- **Physical Device Touch Testing:** Verify touch drag scrubbing on physical mobile devices.
+- **Push & Deployment:** To deploy updates to production (`https://omj-iota.vercel.app`), obtain user confirmation and run `git push origin main`.

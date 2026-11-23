@@ -335,7 +335,7 @@ h1 {
 .player {
   position: absolute;
   z-index: 25;
-  top: calc(env(safe-area-inset-top, 0px) + 12px);
+  top: calc(env(safe-area-inset-top, 0px) + 54px);
   right: max(16px, env(safe-area-inset-right, 0px));
   bottom: auto;
   left: auto;

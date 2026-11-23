@@ -143,8 +143,8 @@ export function targetFor(action: Action): Frame {
     const step = Number(action.split("-")[1]);
 
     env.title = [1, 0, 0, 0.8, 0.55, 0, 0, 1][step] ?? 0;
-    env.rain = [0.15, 1, 0.75, 0.35, 0.4, 0.85, 0.45, 0.15][step] ?? 0;
-    env.sun = [0.05, 0.1, 0.85, 0.4, 0.6, 0.25, 0.95, 0.75][step] ?? 0;
+    env.rain = [0.6, 0.75, 0.6, 0.45, 0.3, 0.15, 0.05, 0.0][step] ?? 0;
+    env.sun  = [0.0, 0.05, 0.1, 0.2, 0.4, 0.55, 0.7, 0.8][step] ?? 0;
     env.stars = 0.7 - env.sun * 0.4;
     env.hearts = second ? 0.12 + step * 0.035 : 0;
     env.zoom = 1 + (step % 3) * 0.007;
@@ -232,6 +232,11 @@ export function targetFor(action: Action): Frame {
       env.sun = 0.15;
       env.camY = -28;
       env.zoom = 1.15;
+      // Arms reaching toward each other for a natural embrace
+      a.rightX = 72;
+      a.rightY = -60;
+      b.leftX = -72;
+      b.leftY = -60;
       break;
 
     case "leaving":
@@ -414,16 +419,18 @@ export function targetFor(action: Action): Frame {
       b.sit = 1;
       b.head = -10;
       // B's left arm caresses resting A
-      b.leftX = -92;
-      b.leftY = -95;
+      b.leftX = -45;
+      b.leftY = -35;
       b.rightX = 28;
       b.rightY = -40;
 
       // Teddy A lies across B's lap — rotation 90° so body is horizontal
-      // x offset: position head on B's lap (B.x - lap_width/2 offset)
+      // x offset: position head at B's lap. With rotation=90, local +x is world +y
+      // so head (at local x=+150) must map to world-x of b.x-22.
+      // => a.x + 150 * a.scale ≈ b.x - 22  →  a.x = b.x - 22 - 150 * a.scale
       a.rotation = 90;
-      a.x = b.x - 20;    // head centred over B's lap
-      a.y = b.y - 40;    // resting on B's thighs, elevated above ground
+      a.x = b.x - 22 - 150 * a.scale;  // head centred over B's lap
+      a.y = b.y - 12;    // resting on B's thighs, elevated above ground
       a.closed = 0.8;    // sleepy/peaceful eyes
       a.head = -8;       // slight chin-tuck comfort
       a.sad = 0;
@@ -458,6 +465,15 @@ export function targetFor(action: Action): Frame {
       env.hearts = 0.8;
       env.camY = -25;
       env.zoom = 1.15;
+      // Full wrap-around hug — both arms around each other
+      a.leftX = -58;
+      a.leftY = -50;
+      a.rightX = 58;
+      a.rightY = -50;
+      b.leftX = -58;
+      b.leftY = -50;
+      b.rightX = 58;
+      b.rightY = -50;
       break;
 
     case "window":

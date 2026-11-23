@@ -119,7 +119,7 @@ test("every lyric can be reached by seeking", async ({ page }) => {
       "data-cue",
       cue.id,
     );
-    await expect(page.locator(".lyric-caption")).toHaveText(cue.text);
+    await expect(page.locator(".lyric-caption")).toHaveText(cue.text.toUpperCase());
   }
 });
 

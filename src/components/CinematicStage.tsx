@@ -92,6 +92,7 @@ export const CinematicStage = memo(function CinematicStage({
   const canvas = useRef<HTMLCanvasElement>(null);
   const lyrics = useRef<LyricsHandle>(null);
   const reduced = useReducedMotion();
+  const [viewBox, setViewBox] = useState("0 0 720 1080");
 
   useLayoutEffect(() => {
     const element = root.current!;
@@ -290,9 +291,14 @@ export const CinematicStage = memo(function CinematicStage({
     }
 
     function resizeCaption() {
-      // Caption is now bottom-anchored via CSS; this observer kept for
-      // future scene-specific overrides if needed.
-      void element.getBoundingClientRect();
+      // Compute a responsive viewBox that expands width on wide screens
+      // while keeping height fixed at 1080 (never vertical-slice characters).
+      const { width: w, height: h } = element.getBoundingClientRect();
+      const aspect = w / h;
+      const stageH = 1080;
+      const stageW = Math.max(720, aspect * stageH);
+      const minX = (720 - stageW) / 2;
+      setViewBox(`${minX} 0 ${stageW} ${stageH}`);
     }
 
     const resizeObserver = new ResizeObserver(resizeCaption);
@@ -322,7 +328,7 @@ export const CinematicStage = memo(function CinematicStage({
       <div className="sky-base" aria-hidden="true" />
 
       <div className="film-surface" aria-hidden="true">
-        <svg className="art art-back" viewBox="0 0 720 1080" preserveAspectRatio="xMidYMid slice">
+        <svg className="art art-back" viewBox={viewBox} preserveAspectRatio="xMidYMid meet">
           <defs>
             <radialGradient id="moon-halo">
               <stop stopColor="#f6dfa8" stopOpacity=".22" />
@@ -401,7 +407,7 @@ export const CinematicStage = memo(function CinematicStage({
 
         <canvas ref={canvas} className="weather" />
 
-        <svg className="art art-front" viewBox="0 0 720 1080" preserveAspectRatio="xMidYMid slice">
+        <svg className="art art-front" viewBox={viewBox} preserveAspectRatio="xMidYMid meet">
           <defs>
             <clipPath id="imagination-clip">
               <rect x="151" y="277" width="418" height="263" rx="88" />

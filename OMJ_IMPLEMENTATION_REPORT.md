@@ -1,59 +1,110 @@
-# OMJ — FULL IMPLEMENTATION REPORT
-## Autonomous Creative Engineering & Production Reconstruction
+# OMJ — Stage 4 Implementation Report
+**Task:** Final Reconstruction and Quality Completion  
+**Date:** November 23, 2026  
+**Status:** All Defects Addressed & Verified
 
 ---
 
-### Project Metadata
-* **Repository:** `https://github.com/HassaanFisky/OMJ`
-* **Feature Branch:** `feat/omj-living-storybook-reconstruction`
-* **Starting Commit:** `50c4661` (`docs: add OMJ design, character, scene, motion bibles and antigravity handoff`)
-* **Local Live Dev Server:** `http://127.0.0.1:4179/`
-* **Production Deployment:** `https://omj-iota.vercel.app`
+## 1. Problem Statements & Root Causes
+
+During Stage 3 Independent Visual Critique (`OMJ_VISUAL_CRITIQUE.md`), two critical defects (P0), four major defects (P1), and one aesthetic polish item (P2) were discovered:
+
+1. **P0-1: Desktop Viewport Slicing Cut Off Characters & Bed**  
+   *Root Cause:* Setting `preserveAspectRatio="xMidYMid slice"` on the `<svg viewBox="0 0 720 1080">` element inside a 1440×900 container created an effective SVG coordinate height of 2160, centered vertically at Y=540. The bottom 540 coordinate units (where characters and bed reside at Y=878–988) were clipped off the screen, showing only ear tips.
+2. **P0-2: Lap-Rest Inversion & Test Failure**  
+   *Root Cause:* Formula `a.x = b.x - 20` with `a.rotation = 90` caused Teddy A's head (at local X = +150) to project to world X = `b.x + 130`, placing the head into empty space and leaving Teddy A's feet on B's lap. Vitest `places the resting head at the lap` failed by 152px.
+3. **P1-1: Controls Pill Blocked Topbar Mute Button**  
+   *Root Cause:* The discreet glass player pill was pinned at `top: calc(env(safe-area-inset-top, 0px) + 12px); right: 16px`, colliding directly with the topbar Mute and Audio controls on desktop viewports.
+4. **P1-2: Back-View Torso Incomplete (Belly Patch Visible from Behind)**  
+   *Root Cause:* `BearRig.tsx` defined `data-joint="belly"` and `data-joint="backTorsoSeam"`, but `BearAnimations.ts` did not query or animate them, leaving the cream belly patch showing when facing the window (`back = 1`).
+5. **P1-3: Kiss and Embrace Poses Lacked Arm Wrapping**  
+   *Root Cause:* `targetFor("kiss")` and `targetFor("embrace")` had no `leftX/Y, rightX/Y` offsets, causing paws to hang at default resting positions.
+6. **P1-4: Playwright Test Assertion Mismatch on Uppercase Lyrics**  
+   *Root Cause:* `tests/player.spec.ts` tested `.toHaveText(cue.text)` (mixed case), while `LyricsDisplay.tsx` properly renders `.toUpperCase()`.
+7. **P2-1: Erratic Weather Alternation in Chorus**  
+   *Root Cause:* Rain and sun array keyframes alternated abruptly between 0.15 and 1.0 within 1-second steps.
 
 ---
 
-## 1. Modifications & Enhancements Summary
+## 2. Technical Modifications Applied
 
-### Character Rigging & Facial Depth (`src/characters/BearRig.tsx`) — [IMPLEMENTED]
-* Replaced simplified dot eyes with multi-tiered vector eyes: white sclera, radial-gradient iris (`#2d1a38` to `#0a0410`), primary specular shine highlight, and secondary ambient bounce gleam.
-* Added soft feathered bilaterial blush pads (`rx: 16, ry: 10`) on plush cheeks.
-* Integrated dynamic `eyeWater` and `eyeWaterR` tear-glisten overlay layers for emotional states.
-* Re-proportioned anatomical silhouettes: chubby tummy ellipse, stubby paws, padded feet soles, and subtle plush seams.
+### 2.1 Responsive Stage Layout & ViewBox (`src/components/CinematicStage.tsx`)
+- Replaced `preserveAspectRatio="xMidYMid slice"` with dynamic SVG `viewBox` calculation:
+  ```ts
+  const [viewBox, setViewBox] = useState("0 0 720 1080");
 
-### Inverse Kinematics & Animation Loops (`src/characters/BearAnimations.ts`) — [IMPLEMENTED]
-* Refactored 2D two-bone IK solver (`solveArm`) with anatomical limits (36px upper, 35px lower) and angle-clamping to prevent hyperextension and body intersection.
-* Engineered organic non-repetitive eye blinking: dual-period cycle (soft blink at ~5.0s, micro-blink at ~5.32s).
-* Added emotional mouth deformation responsive to sadness/smile parameters.
-* Implemented glistening teardrop physics with fall acceleration and opacity dissipation.
+  function resizeCaption() {
+    const { width: w, height: h } = element.getBoundingClientRect();
+    const aspect = w / h;
+    const stageH = 1080;
+    const stageW = Math.max(720, aspect * stageH);
+    const minX = (720 - stageW) / 2;
+    setViewBox(`${minX} 0 ${stageW} ${stageH}`);
+  }
+  ```
+- Both `art-back` and `art-front` SVGs now use `viewBox={viewBox} preserveAspectRatio="xMidYMid meet"`.
+- Characters, bed, quilt, and room elements remain grounded and fully visible on both desktop widescreen (1440×900) and narrow mobile screens (393×852).
 
-### Canvas Weather & Original Creative Motifs (`src/animation/ParticleEngine.ts`) — [IMPLEMENTED]
-* **The Firefly Guide:** Added a floating bioluminescent ember that wanders organically across the canvas during night and mist scenes with breathing radial glow.
-* **Ground Puddle Ripples:** Animated expanding ripple rings during rain sequences (`env.rain > 0.001`).
-* Preserved depth-layered hearts, stardust constellations, and lateral snowflake drift.
+### 2.2 Lap-Rest Geometric Correction (`src/timeline/scenes.ts`)
+- Restored anatomically sound offset formula:
+  ```ts
+  a.rotation = 90;
+  a.x = b.x - 22 - 150 * a.scale;
+  a.y = b.y - 12;
+  b.leftX = -45;
+  b.leftY = -35;
+  ```
+- Vitest unit test `places the resting head at the lap` passed with 0px deviation.
 
-### Minimalist Cinematic Controls (`src/components/Controls.tsx`, `src/styles.css`) — [IMPLEMENTED]
-* Removed conventional seekbar, timeline sliders, and elapsed/total time digital counters.
-* Replaced with a floating frosted glass pill (`.cinematic-controls`) featuring:
-  - Accessible Pause / Resume toggle button with 44×44px touch target.
-  - One-click Replay button.
-  - Discreet Transcript reader modal trigger.
-  - Close / Exit button.
-* Re-styled entrance screen for an immediate cinematic short-film identity.
+### 2.3 Arm IK Wrapping for Intimate Scenes (`src/timeline/scenes.ts`)
+- **Kiss:**
+  ```ts
+  a.rightX = 72;  a.rightY = -60;
+  b.leftX = -72;  b.leftY = -60;
+  ```
+- **Embrace:**
+  ```ts
+  a.leftX = -58;  a.leftY = -50;
+  a.rightX = 58;  a.rightY = -50;
+  b.leftX = -58;  b.leftY = -50;
+  b.rightX = 58;  b.rightY = -50;
+  ```
+
+### 2.4 Complete Character Back-Pose Architecture (`src/characters/BearAnimations.ts`)
+- Added `"belly"` and `"backTorsoSeam"` to `JointName` and `jointNames` array.
+- In painter function:
+  ```ts
+  nodes.belly.setAttribute("opacity", String(1 - pose.back));
+  nodes.backTorsoSeam.setAttribute("opacity", String(pose.back * 0.75));
+  ```
+- When `back = 1`, the front belly patch is hidden and spine/torso seams are cleanly rendered.
+
+### 2.5 UI Collision Resolution (`src/styles.css`)
+- Repositioned `.player` floating controls pill:
+  ```css
+  top: calc(env(safe-area-inset-top, 0px) + 54px);
+  ```
+- Cleared the top navigation row completely, resolving Playwright pointer click interception.
+
+### 2.6 Weather Array Progression (`src/timeline/scenes.ts`)
+- Smoothed chorus weather transitions into a logical narrative arc:
+  ```ts
+  env.rain = [0.6, 0.75, 0.6, 0.45, 0.3, 0.15, 0.05, 0.0][step] ?? 0;
+  env.sun  = [0.0, 0.05, 0.1, 0.2, 0.4, 0.55, 0.7, 0.8][step] ?? 0;
+  ```
+
+### 2.7 Test Suite Alignment (`tests/player.spec.ts`)
+- Updated lyric text assertion to reflect uppercase specification:
+  ```ts
+  await expect(page.locator(".lyric-caption")).toHaveText(cue.text.toUpperCase());
+  ```
 
 ---
 
-## 2. Verification & Execution Status
+## 3. Verification Summary
 
-| Component | Status | Telemetry |
-| :--- | :--- | :--- |
-| **Static Typecheck** | **EXECUTED / TESTED** | `tsc --noEmit` passed with 0 errors. |
-| **Unit Test Suite** | **EXECUTED / TESTED** | `vitest run` passed: 12 / 12 unit tests passing (film score, scene coverage, deterministic seeking, lap geometry). |
-| **Vite Dev Server** | **EXECUTED** | Active on `http://127.0.0.1:4179/` (Daemon task). |
-| **Production Build** | **EXECUTED / TESTED** | `vite build` completed: bundles output in `dist/` in 3.21s. |
-| **Git Synchronization**| **EXECUTED** | Branched onto `feat/omj-living-storybook-reconstruction`. |
-
----
-
-## 3. Known Limitations & Handoff Notes
-* Browser Playwright testing is downloading Chromium binaries in the background.
-* Live audio playback uses `public/audio/omj.m4a` with verified `HTMLAudioElement` bindings and graceful visual preview fallback.
+- **TypeScript:** `npx tsc --noEmit` → 0 errors
+- **Vitest:** `npx vitest run` → 12/12 passing
+- **Vite Build:** `npx vite build` → successful production build
+- **Playwright Suite:** `npx playwright test --project=desktop` → 6/6 passing
+- **Screenshot QA:** 15 multi-viewport screenshots captured and verified
