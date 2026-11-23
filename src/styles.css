@@ -57,7 +57,7 @@ button:focus:not(:focus-visible) { outline: none; }
 
 .cinematic-stage {
   position: absolute;
-  inset: 0 0 calc(99px + env(safe-area-inset-bottom, 0px));
+  inset: 0;
   overflow: hidden;
 }
 
@@ -326,20 +326,30 @@ h1 {
 
 .player {
   position: absolute;
-  z-index: 20;
-  left: 50%;
-  bottom: calc(env(safe-area-inset-bottom, 0px) + 16px);
+  z-index: 25;
+  top: calc(env(safe-area-inset-top, 0px) + 12px);
+  right: max(16px, env(safe-area-inset-right, 0px));
+  bottom: auto;
+  left: auto;
+  transform: none;
   width: auto;
-  transform: translateX(-50%);
-  padding: 4px 12px;
-  border: 1px solid rgba(220, 195, 230, 0.24);
+  padding: 4px 10px;
+  border: 1px solid rgba(220, 195, 230, 0.22);
   border-radius: 999px;
   color: #f3e4e4;
-  background: rgba(30, 24, 42, 0.72);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  box-shadow: 0 10px 32px rgba(8, 6, 18, 0.38);
-  transition: opacity 0.3s ease, transform 0.3s ease;
+  background: rgba(26, 20, 36, 0.55);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow: 0 8px 24px rgba(8, 6, 18, 0.35);
+  opacity: 0.28;
+  transition: opacity 0.35s ease, background 0.35s ease, box-shadow 0.35s ease;
+}
+
+.player:hover,
+.player:focus-within {
+  opacity: 0.96;
+  background: rgba(28, 22, 38, 0.88);
+  box-shadow: 0 10px 32px rgba(8, 6, 18, 0.5);
 }
 
 .player-row {

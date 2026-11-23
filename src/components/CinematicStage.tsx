@@ -112,7 +112,7 @@ export const CinematicStage = memo(function CinematicStage({
         "cloudA", "cloudB", "camera", "bench", "message",
         "gifts", "flowers", "phone", "thought", "quilt",
         "lantern", "letter", "title", "curtainA", "curtainB",
-        "shadowA", "shadowB",
+        "shadowA", "shadowB", "snowglobe",
       ].map((name) => [name, query(name)]),
     );
 
@@ -164,6 +164,12 @@ export const CinematicStage = memo(function CinematicStage({
       opacity("lantern", env.lantern);
       opacity("letter", env.letter);
       opacity("title", env.title);
+
+      const globeReveal =
+        frame.action === "tail"
+          ? Math.min(1, Math.max(0, (0.95 - env.zoom) / 0.22))
+          : 0;
+      opacity("snowglobe", globeReveal);
 
       const cx = env.camX ?? 0;
       const cy = env.camY ?? 0;
@@ -413,6 +419,23 @@ export const CinematicStage = memo(function CinematicStage({
               <stop stopColor="#ffe1a1" stopOpacity=".4" />
               <stop offset="1" stopColor="#ffe1a1" stopOpacity="0" />
             </radialGradient>
+            <radialGradient id="snowglobe-halo">
+              <stop stopColor="#e8d5f5" stopOpacity=".35" />
+              <stop offset="1" stopColor="#e8d5f5" stopOpacity="0" />
+            </radialGradient>
+            <linearGradient id="wood-tier1" x1="0" y1="0" x2="0" y2="1">
+              <stop stopColor="#5a3825" />
+              <stop offset="1" stopColor="#3e2415" />
+            </linearGradient>
+            <linearGradient id="wood-body" x1="0" y1="0" x2="0" y2="1">
+              <stop stopColor="#422616" />
+              <stop offset="1" stopColor="#2a170e" />
+            </linearGradient>
+            <linearGradient id="brass-plate" x1="0" y1="0" x2="1" y2="0">
+              <stop stopColor="#ffe8a3" />
+              <stop offset=".5" stopColor="#d4aa50" />
+              <stop offset="1" stopColor="#8c6b28" />
+            </linearGradient>
           </defs>
 
           <g data-node="window">
@@ -593,6 +616,30 @@ export const CinematicStage = memo(function CinematicStage({
             </text>
             <path d="M338 244H382"
               stroke="#d6b4bf" strokeWidth="2" strokeLinecap="round" />
+          </g>
+
+          <g data-node="snowglobe" opacity="0">
+            <circle cx="360" cy="540" r="390" fill="url(#snowglobe-halo)" opacity=".35" />
+            <circle cx="360" cy="540" r="380" fill="none" stroke="#d5c0e8" strokeWidth="6" opacity=".55" />
+            <circle cx="360" cy="540" r="382" fill="none" stroke="#ffffff" strokeWidth="2" opacity=".75" />
+            <path d="M140 320 A 370 370 0 0 1 340 185" fill="none" stroke="#ffffff" strokeWidth="5" strokeLinecap="round" opacity=".65" />
+            <ellipse cx="260" cy="220" rx="45" ry="18" transform="rotate(-35 260 220)" fill="#ffffff" opacity=".45" />
+            <path d="M580 400 A 375 375 0 0 1 540 680" fill="none" stroke="#d4bde8" strokeWidth="8" strokeLinecap="round" opacity=".22" />
+
+            <g transform="translate(360 920)">
+              <ellipse cy="78" rx="280" ry="24" fill="#0c0a18" opacity=".6" />
+              <ellipse cy="0" rx="270" ry="26" fill="url(#wood-tier1)" stroke="#523220" strokeWidth="2" />
+              <path d="M-270 0 L-295 48 C-200 68 200 68 295 48 L270 0 Z" fill="url(#wood-body)" stroke="#422515" strokeWidth="2" />
+              <path d="M-285 24 C-190 42 190 42 285 24" fill="none" stroke="#f6dfa8" strokeWidth="4" opacity=".8" />
+              <path d="M-280 28 C-190 46 190 46 280 28" fill="none" stroke="#b89350" strokeWidth="1.5" />
+              <ellipse cy="52" rx="305" ry="28" fill="url(#wood-tier1)" stroke="#523220" strokeWidth="2" />
+              <path d="M-305 52 L-310 74 C-210 96 210 96 310 74 L305 52 Z" fill="#2d1910" />
+              <ellipse cy="74" rx="310" ry="28" fill="#22120b" />
+              <rect x="-65" y="32" width="130" height="28" rx="5" fill="url(#brass-plate)" stroke="#f5dfa5" strokeWidth="1.5" />
+              <circle cx="-56" cy="46" r="2" fill="#7a5520" />
+              <circle cx="56" cy="46" r="2" fill="#7a5520" />
+              <text x="0" y="52" textAnchor="middle" fontFamily="Georgia, serif" fontSize="16" letterSpacing="3" fill="#382108" fontWeight="bold">OMJ</text>
+            </g>
           </g>
         </svg>
       </div>
