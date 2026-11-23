@@ -105,18 +105,28 @@ export function BearRig({
         fill={`url(#${gradId})`}
         stroke={furShadow} strokeWidth="1.6" strokeLinejoin="round"
       />
-      {/* Belly patch — lighter oval for plush tummy */}
-      <ellipse
-        cy="-40" rx="31" ry="42"
-        fill={patch} stroke="none" opacity=".68"
-      />
-      {/* Body center seam stitch */}
+      {/* Front belly patch & front seam — fades out when facing back */}
+      <g data-joint="belly">
+        <ellipse
+          cy="-40" rx="31" ry="42"
+          fill={patch} stroke="none" opacity=".68"
+        />
+        <path
+          d="M0-82v60"
+          fill="none"
+          stroke={furShadow} strokeWidth=".8"
+          strokeDasharray="2 7" strokeLinecap="round"
+          opacity=".35"
+        />
+      </g>
+      {/* Back spine seam stitch — visible when turned facing back */}
       <path
-        d="M0-82v60"
+        data-joint="backTorsoSeam"
+        d="M0-112v96"
         fill="none"
-        stroke={furShadow} strokeWidth=".8"
-        strokeDasharray="2 7" strokeLinecap="round"
-        opacity=".35"
+        stroke={furShadow} strokeWidth="1.1"
+        strokeDasharray="3 7" strokeLinecap="round"
+        opacity="0"
       />
       {/* Rim light on body left edge */}
       <path

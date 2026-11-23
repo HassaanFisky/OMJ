@@ -408,17 +408,30 @@ export function targetFor(action: Action): Frame {
       env.camX = -15;
       env.camY = -22;
       env.zoom = 1.18;
-      b.x = 445;
+      // Teddy B sits naturally on the bed, slightly left of centre
+      b.x = 420;
       b.y = 915;
       b.sit = 1;
-      b.head = -13;
-      b.leftX = -45;
-      b.leftY = -38;
+      b.head = -10;
+      // B's left arm caresses resting A
+      b.leftX = -92;
+      b.leftY = -95;
+      b.rightX = 28;
+      b.rightY = -40;
 
+      // Teddy A lies across B's lap — rotation 90° so body is horizontal
+      // x offset: position head on B's lap (B.x - lap_width/2 offset)
       a.rotation = 90;
-      a.x = b.x - 22 - 150 * a.scale;
-      a.y = b.y + 8;
-      a.closed = 0.85;
+      a.x = b.x - 20;    // head centred over B's lap
+      a.y = b.y - 40;    // resting on B's thighs, elevated above ground
+      a.closed = 0.8;    // sleepy/peaceful eyes
+      a.head = -8;       // slight chin-tuck comfort
+      a.sad = 0;
+      // A's arms dangle naturally when lying down
+      a.leftX = -30;
+      a.leftY = 20;
+      a.rightX = 30;
+      a.rightY = 20;
       break;
 
     case "eyes":
@@ -458,10 +471,21 @@ export function targetFor(action: Action): Frame {
       env.zoom = 1.02;
       a.x = 290;
       b.x = 435;
+      // Both fully facing away (back = 1), natural waist-level framing
       a.back = 1;
       b.back = 1;
-      a.head = -5;
-      b.head = -7;
+      // Heads align naturally with bodies looking at window (no neck twist)
+      a.head = 0;
+      b.head = 0;
+      // Arms rest naturally at sides when facing back
+      a.leftX = -48;
+      a.leftY = -55;
+      a.rightX = 48;
+      a.rightY = -55;
+      b.leftX = -48;
+      b.leftY = -55;
+      b.rightX = 48;
+      b.rightY = -55;
       break;
 
     case "quilt":
@@ -482,10 +506,20 @@ export function targetFor(action: Action): Frame {
       b.y = 915;
       a.sit = 1;
       b.sit = 1;
-      a.head = 9;
-      b.head = -9;
-      a.closed = 0.45;
-      b.closed = 0.45;
+      // Gentle settled expressions — slightly droopy with peaceful tiredness
+      a.head = 6;
+      b.head = -6;
+      a.closed = 0.6;
+      b.closed = 0.6;
+      // Arms tucked under quilt
+      a.leftX = -38;
+      a.leftY = -18;
+      a.rightX = 38;
+      a.rightY = -18;
+      b.leftX = -38;
+      b.leftY = -18;
+      b.rightX = 38;
+      b.rightY = -18;
       break;
 
     default:

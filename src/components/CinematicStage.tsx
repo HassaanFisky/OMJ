@@ -109,7 +109,7 @@ export const CinematicStage = memo(function CinematicStage({
     const nodes = Object.fromEntries(
       [
         "room", "hole", "window", "sun", "moon", "cold",
-        "cloudA", "cloudB", "camera", "bench", "message",
+        "cloudA", "cloudB", "camera", "bed", "message",
         "gifts", "flowers", "phone", "thought", "quilt",
         "lantern", "letter", "title", "curtainA", "curtainB",
         "shadowA", "shadowB", "snowglobe",
@@ -154,7 +154,7 @@ export const CinematicStage = memo(function CinematicStage({
       opacity("sun", env.sun);
       opacity("moon", 1 - env.sun * 0.75);
       opacity("cold", env.cold * 0.16);
-      opacity("bench", env.bench);
+      opacity("bed", env.bench);
       opacity("message", env.message);
       opacity("gifts", env.gifts);
       opacity("flowers", env.flowers);
@@ -290,14 +290,9 @@ export const CinematicStage = memo(function CinematicStage({
     }
 
     function resizeCaption() {
-      const bounds = element.getBoundingClientRect();
-      const scale = Math.min(bounds.width / 720, bounds.height / 1080);
-      const offsetY = (bounds.height - 1080 * scale) / 2;
-
-      element.style.setProperty(
-        "--caption-y",
-        `${offsetY + 600 * scale}px`,
-      );
+      // Caption is now bottom-anchored via CSS; this observer kept for
+      // future scene-specific overrides if needed.
+      void element.getBoundingClientRect();
     }
 
     const resizeObserver = new ResizeObserver(resizeCaption);
@@ -327,7 +322,7 @@ export const CinematicStage = memo(function CinematicStage({
       <div className="sky-base" aria-hidden="true" />
 
       <div className="film-surface" aria-hidden="true">
-        <svg className="art art-back" viewBox="0 0 720 1080">
+        <svg className="art art-back" viewBox="0 0 720 1080" preserveAspectRatio="xMidYMid slice">
           <defs>
             <radialGradient id="moon-halo">
               <stop stopColor="#f6dfa8" stopOpacity=".22" />
@@ -406,7 +401,7 @@ export const CinematicStage = memo(function CinematicStage({
 
         <canvas ref={canvas} className="weather" />
 
-        <svg className="art art-front" viewBox="0 0 720 1080">
+        <svg className="art art-front" viewBox="0 0 720 1080" preserveAspectRatio="xMidYMid slice">
           <defs>
             <clipPath id="imagination-clip">
               <rect x="151" y="277" width="418" height="263" rx="88" />
@@ -482,14 +477,82 @@ export const CinematicStage = memo(function CinematicStage({
             <ellipse data-node="shadowB" rx="65" ry="11"
               fill="#121020" opacity=".15" />
 
-            <g data-node="bench" opacity="0">
-              <path d="M180 950H545" stroke="#8a6f7c"
-                strokeWidth="17" strokeLinecap="round" />
-              <path d="M204 958v30M520 958v30"
-                stroke="#66556a" strokeWidth="9" />
-              <path d="M191 934Q360 915 535 934"
-                fill="none" stroke="#af8c9c"
-                strokeWidth="15" strokeLinecap="round" />
+            <g data-node="bed" opacity="0">
+              {/* ── WOODEN BED — Handcrafted daybed with headboard ── */}
+              {/* Mattress base shadow */}
+              <ellipse cx="363" cy="998" rx="195" ry="12" fill="#0e0c1a" opacity=".35" />
+
+              {/* Foot posts (front) */}
+              <rect x="192" y="910" width="20" height="88" rx="6"
+                fill="#5c3820" stroke="#3e2210" strokeWidth="1.5" />
+              <ellipse cx="202" cy="910" rx="13" ry="8" fill="#7a4e2e" stroke="#3e2210" strokeWidth="1.5" />
+              <rect x="528" y="910" width="20" height="88" rx="6"
+                fill="#5c3820" stroke="#3e2210" strokeWidth="1.5" />
+              <ellipse cx="538" cy="910" rx="13" ry="8" fill="#7a4e2e" stroke="#3e2210" strokeWidth="1.5" />
+
+              {/* Head posts (back-ish, taller) */}
+              <rect x="192" y="828" width="20" height="90" rx="6"
+                fill="#5c3820" stroke="#3e2210" strokeWidth="1.5" />
+              <ellipse cx="202" cy="828" rx="13" ry="8" fill="#7a4e2e" stroke="#3e2210" strokeWidth="1.5" />
+              <rect x="528" y="828" width="20" height="90" rx="6"
+                fill="#5c3820" stroke="#3e2210" strokeWidth="1.5" />
+              <ellipse cx="538" cy="828" rx="13" ry="8" fill="#7a4e2e" stroke="#3e2210" strokeWidth="1.5" />
+
+              {/* Headboard panel */}
+              <path d="M202 836Q360 808 538 836V918Q360 926 202 918Z"
+                fill="#4a2e18" stroke="#3e2210" strokeWidth="2" />
+              {/* Headboard raised rail top */}
+              <path d="M202 836Q360 812 538 836"
+                fill="none" stroke="#7a5035" strokeWidth="8" strokeLinecap="round" />
+              {/* Headboard carved detail */}
+              <path d="M230 862Q360 848 490 862"
+                fill="none" stroke="#6a4028" strokeWidth="3" strokeLinecap="round" opacity=".7" />
+              <path d="M240 876Q360 864 480 876"
+                fill="none" stroke="#6a4028" strokeWidth="2" strokeLinecap="round" opacity=".5" />
+              {/* Wood grain lines on headboard */}
+              <path d="M270 840v72M360 836v82M450 840v72"
+                stroke="#3e2410" strokeWidth="1" strokeDasharray="3 9" opacity=".4" />
+              {/* Headboard side rails */}
+              <rect x="192" y="836" width="12" height="82" rx="3"
+                fill="#5a3820" stroke="#3e2210" strokeWidth="1" />
+              <rect x="536" y="836" width="12" height="82" rx="3"
+                fill="#5a3820" stroke="#3e2210" strokeWidth="1" />
+
+              {/* Mattress */}
+              <path d="M204 918Q360 908 536 918V988Q360 998 204 988Z"
+                fill="#ece0d4" stroke="#b8a09a" strokeWidth="2" />
+              {/* Mattress piping top edge */}
+              <path d="M204 918Q360 908 536 918"
+                fill="none" stroke="#d4c0ba" strokeWidth="6" strokeLinecap="round" />
+              {/* Mattress side seam */}
+              <path d="M204 918V988M536 918V988"
+                stroke="#c4aea8" strokeWidth="2" strokeLinecap="round" />
+              {/* Mattress quilted pattern */}
+              <path d="M270 926L265 980M360 924V982M450 926L455 980"
+                stroke="#c4b0a8" strokeWidth="1" strokeDasharray="4 8" opacity=".5" />
+              <path d="M210 952Q360 946 530 952"
+                fill="none" stroke="#c4b0a8" strokeWidth="1" strokeDasharray="4 8" opacity=".5" />
+
+              {/* Pillows */}
+              <path d="M228 912Q280 900 340 908V928Q280 936 228 926Z"
+                fill="#f5ece8" stroke="#c8b4b0" strokeWidth="1.5" />
+              <ellipse cx="284" cy="918" rx="52" ry="11"
+                fill="#f8f1ee" stroke="none" opacity=".6" />
+              <path d="M380 910Q440 900 495 910V928Q440 938 380 926Z"
+                fill="#ede0e8" stroke="#c0aab8" strokeWidth="1.5" />
+              <ellipse cx="438" cy="918" rx="52" ry="11"
+                fill="#f4eef2" stroke="none" opacity=".6" />
+              {/* Pillow soft fold shadows */}
+              <path d="M230 920Q280 926 338 921"
+                fill="none" stroke="#c4b0aa" strokeWidth="1.5" strokeLinecap="round" opacity=".4" />
+              <path d="M382 918Q440 924 492 918"
+                fill="none" stroke="#baaab6" strokeWidth="1.5" strokeLinecap="round" opacity=".4" />
+
+              {/* Foot rail crossbar */}
+              <path d="M204 988Q360 998 536 988"
+                fill="none" stroke="#5c3820" strokeWidth="12" strokeLinecap="round" />
+              <path d="M204 988Q360 998 536 988"
+                fill="none" stroke="#7a4e2e" strokeWidth="4" strokeLinecap="round" opacity=".5" />
             </g>
 
             <g data-node="gifts" opacity="0">
@@ -548,23 +611,35 @@ export const CinematicStage = memo(function CinematicStage({
             </g>
 
             <g data-node="quilt" opacity="0">
+              {/* Quilt draped over both seated characters on the bed */}
+              {/* Main quilt body — rises over laps, drapes naturally */}
               <path
-                d="M183 829Q361 808 546 830L566 963Q360 997 159 963Z"
+                d="M196 898Q362 876 544 898L560 988Q360 1004 160 988Z"
                 fill="url(#quilt-color)"
                 stroke="#70586f" strokeWidth="3"
               />
-              <path d="M191 837Q360 817 538 838"
+              {/* Top quilted fold — rolls over the bodies naturally */}
+              <path d="M200 898Q362 879 540 898"
                 fill="none" stroke="#dfbcca"
-                strokeWidth="15" strokeLinecap="round" />
+                strokeWidth="18" strokeLinecap="round" />
+              {/* Secondary fold shadow */}
+              <path d="M210 905Q362 886 530 905"
+                fill="none" stroke="#c4a0b5"
+                strokeWidth="6" strokeLinecap="round" opacity=".5" />
+              {/* Quilted stitching grid lines */}
               <path
-                d="M225 843L215 969M295 835L291 980M365 833V982M435 838L442 977M505 847L521 969M174 887Q360 910 554 888M167 932Q360 955 561 933"
+                d="M230 910L218 988M305 904L300 992M380 902V994M455 904L462 990M530 912L548 986M176 946Q362 968 554 946M168 970Q362 992 562 970"
                 fill="none" stroke="#d0abc0"
                 strokeWidth="1.5" strokeDasharray="3 7" opacity=".6"
               />
+              {/* Heart motif centre-quilt */}
               <path
-                d="M351 888q-15-20-24-5q-4 10 24 28q28-18 24-28q-9-15-24 5"
+                d="M351 936q-15-20-24-5q-4 10 24 28q28-18 24-28q-9-15-24 5"
                 fill="#cda9bb" opacity=".65"
               />
+              {/* Warm ambient glow on quilt surface */}
+              <ellipse cx="362" cy="940" rx="140" ry="22"
+                fill="#f5e0ea" opacity=".08" />
             </g>
           </g>
 

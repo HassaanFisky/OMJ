@@ -170,8 +170,11 @@ export function createBearPainter(root: SVGGElement) {
 
     nodes.eyes.setAttribute("opacity", String(1 - pose.closed));
     nodes.closedEyes.setAttribute("opacity", String(pose.closed));
+
+    // back = 1 → facing away from camera: hide face, show back seam, adjust head
+    // back = 0 → facing camera normally
     nodes.face.setAttribute("opacity", String(1 - pose.back));
-    nodes.backSeam.setAttribute("opacity", String(pose.back * 0.5));
+    nodes.backSeam.setAttribute("opacity", String(pose.back * 0.65));
     nodes.warm.setAttribute("opacity", String(warmth * 0.28));
 
     // Dynamic emotional mouth curvature

@@ -36,19 +36,20 @@ export const LyricsDisplay = forwardRef<LyricsHandle>(
           const wrapper = document.createElement("span");
           wrapper.className = "lyric-word";
 
+          const wordText = word.text.toUpperCase();
           const base = document.createElement("span");
-          base.textContent = word.text;
+          base.textContent = wordText;
 
           const fill = document.createElement("span");
           fill.className = "lyric-word-fill";
-          fill.textContent = word.text;
+          fill.textContent = wordText;
 
           wrapper.append(base, fill);
           root.append(wrapper);
           fills.current.push(fill);
         }
       } else {
-        root.textContent = cue.text;
+        root.textContent = cue.text.toUpperCase();
       }
     }
 
@@ -68,7 +69,7 @@ export const LyricsDisplay = forwardRef<LyricsHandle>(
 
         root.style.opacity = String(opacity);
         root.style.transform =
-          `translate(-50%,-50%) translateY(${reduced ? 0 : (1 - opacity) * 5}px)`;
+          `translateX(-50%) translateY(${reduced ? 0 : (1 - opacity) * 6}px)`;
 
         if (cue?.words && cue.verification === "verified") {
           cue.words.forEach((word, index) => {
