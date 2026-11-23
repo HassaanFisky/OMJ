@@ -143,9 +143,13 @@ export function targetFor(action: Action): Frame {
     const step = Number(action.split("-")[1]);
 
     env.title = [1, 0, 0, 0.8, 0.55, 0, 0, 1][step] ?? 0;
-    env.rain = [0.6, 0.75, 0.6, 0.45, 0.3, 0.15, 0.05, 0.0][step] ?? 0;
-    env.sun  = [0.0, 0.05, 0.1, 0.2, 0.4, 0.55, 0.7, 0.8][step] ?? 0;
-    env.stars = 0.7 - env.sun * 0.4;
+    env.rain = second
+      ? 0
+      : ([0.65, 0.55, 0.45, 0.3, 0.2, 0.1, 0.05, 0.0][step] ?? 0);
+    env.sun = second
+      ? ([0.45, 0.55, 0.65, 0.75, 0.8, 0.85, 0.9, 0.95][step] ?? 0.8)
+      : ([0.0, 0.0, 0.05, 0.1, 0.2, 0.35, 0.5, 0.65][step] ?? 0);
+    env.stars = second ? 0.2 : (env.rain > 0.2 ? 0.2 : 0.6 - env.sun * 0.4);
     env.hearts = second ? 0.12 + step * 0.035 : 0;
     env.zoom = 1 + (step % 3) * 0.007;
 

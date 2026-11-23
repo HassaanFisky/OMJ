@@ -90,6 +90,7 @@ export function createBearPainter(root: SVGGElement) {
   // Optional layered aesthetic joints
   const eyeWaterL = root.querySelector<SVGElement>('[data-joint="eyeWater"]');
   const eyeWaterR = root.querySelector<SVGElement>('[data-joint="eyeWaterR"]');
+  const scarfKnot = root.querySelector<SVGElement>('[data-joint="scarfKnot"]');
 
   return (
     pose: Pose,
@@ -104,10 +105,12 @@ export function createBearPainter(root: SVGGElement) {
     root.setAttribute("opacity", String(pose.alpha));
 
     // Dynamic head rotation and gentle breathing micro-nod
-    const headBreathing = reduced ? 0 : Math.sin(time * 2.2) * 1.2;
+    // When back > 0.5, head is kept aligned straight with zero neck twist
+    const headBreathing = reduced || pose.back > 0.5 ? 0 : Math.sin(time * 2.2) * 1.2;
+    const finalHead = pose.back > 0.5 ? 0 : pose.head + headBreathing;
     nodes.head.setAttribute(
       "transform",
-      `rotate(${pose.head + headBreathing} 0 -150)`,
+      `rotate(${finalHead} 0 -150)`,
     );
 
     // Natural walk cycle & nervous arm shiver
@@ -173,12 +176,18 @@ export function createBearPainter(root: SVGGElement) {
     nodes.eyes.setAttribute("opacity", String(1 - pose.closed));
     nodes.closedEyes.setAttribute("opacity", String(pose.closed));
 
-    // back = 1 → facing away from camera: hide face, show back seam, adjust head
-    // back = 0 → facing camera normally
-    nodes.face.setAttribute("opacity", String(1 - pose.back));
-    nodes.backSeam.setAttribute("opacity", String(pose.back * 0.65));
-    nodes.belly.setAttribute("opacity", String(1 - pose.back));
-    nodes.backTorsoSeam.setAttribute("opacity", String(pose.back * 0.75));
+    // When back > 0.5: hide face, muzzle, belly, scarf; show back seams
+    const backFactor = clamp(pose.back, 0, 1);
+    const frontOpacity = clamp(1 - backFactor * 2, 0, 1);
+    const backOpacity = clamp(backFactor * 1.5, 0, 1);
+
+    nodes.face.setAttribute("opacity", String(frontOpacity));
+    nodes.belly.setAttribute("opacity", String(frontOpacity));
+    nodes.backSeam.setAttribute("opacity", String(backOpacity * 0.9));
+    nodes.backTorsoSeam.setAttribute("opacity", String(backOpacity * 0.95));
+    if (scarfKnot) {
+      scarfKnot.setAttribute("opacity", String(frontOpacity));
+    }
     nodes.warm.setAttribute("opacity", String(warmth * 0.28));
 
     // Dynamic emotional mouth curvature

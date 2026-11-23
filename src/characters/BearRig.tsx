@@ -227,44 +227,56 @@ export function BearRig({
             {/* Left eye */}
             <g transform="translate(-21 -157)">
               {/* Eye socket / white sclera */}
-              <ellipse rx="8.5" ry="11" fill="#f8f2ee" />
+              <ellipse rx="8.5" ry="11" fill="#fcf9f5" />
               {/* Iris gradient */}
-              <ellipse rx="7" ry="9" fill={`url(#${eyeGradId})`} />
+              <ellipse rx="7.2" ry="9.5" fill={`url(#${eyeGradId})`} />
+              {/* Soft lower bounce rim */}
+              <ellipse cy="3.5" rx="5.5" ry="3" fill={isA ? "#fce4c8" : "#f0d4ea"} opacity=".35" />
               {/* Pupil — deep center */}
-              <ellipse cy="1" rx="4" ry="5.5" fill="#0a0410" />
+              <ellipse cy="0.5" rx="4.2" ry="5.8" fill="#08030e" />
+              {/* Crescent top specular reflection */}
+              <path
+                d="M-4.5 -5.5 C-2 -7.8, 2 -7.8, 4.5 -5.5 C2 -6.6, -2 -6.6, -4.5 -5.5 Z"
+                fill="#ffffff" opacity=".88"
+              />
               {/* Primary specular catchlight — top left */}
               <ellipse
                 cx="-2.5" cy="-3.5" rx="2.8" ry="3.2"
                 fill={`url(#${eyeShineId})`}
               />
-              {/* Secondary bounce light — bottom right */}
-              <circle cx="2.5" cy="3" r="1.4"
-                fill="#ffffff" opacity=".28"
+              {/* Secondary pinpoint catchlight — bottom right */}
+              <circle cx="2.6" cy="3" r="1.3"
+                fill="#ffffff" opacity=".8"
               />
               {/* Eyelid upper crease */}
               <path
                 d="M-7-9q7-5 14 0"
                 fill="none" stroke={furShadow} strokeWidth="1.5"
-                strokeLinecap="round" opacity=".45"
+                strokeLinecap="round" opacity=".5"
               />
             </g>
 
             {/* Right eye */}
             <g transform="translate(21 -157)">
-              <ellipse rx="8.5" ry="11" fill="#f8f2ee" />
-              <ellipse rx="7" ry="9" fill={`url(#${eyeGradId})`} />
-              <ellipse cy="1" rx="4" ry="5.5" fill="#0a0410" />
+              <ellipse rx="8.5" ry="11" fill="#fcf9f5" />
+              <ellipse rx="7.2" ry="9.5" fill={`url(#${eyeGradId})`} />
+              <ellipse cy="3.5" rx="5.5" ry="3" fill={isA ? "#fce4c8" : "#f0d4ea"} opacity=".35" />
+              <ellipse cy="0.5" rx="4.2" ry="5.8" fill="#08030e" />
+              <path
+                d="M-4.5 -5.5 C-2 -7.8, 2 -7.8, 4.5 -5.5 C2 -6.6, -2 -6.6, -4.5 -5.5 Z"
+                fill="#ffffff" opacity=".88"
+              />
               <ellipse
                 cx="-2.5" cy="-3.5" rx="2.8" ry="3.2"
                 fill={`url(#${eyeShineId})`}
               />
-              <circle cx="2.5" cy="3" r="1.4"
-                fill="#ffffff" opacity=".28"
+              <circle cx="2.6" cy="3" r="1.3"
+                fill="#ffffff" opacity=".8"
               />
               <path
                 d="M-7-9q7-5 14 0"
                 fill="none" stroke={furShadow} strokeWidth="1.5"
-                strokeLinecap="round" opacity=".45"
+                strokeLinecap="round" opacity=".5"
               />
             </g>
 
@@ -353,7 +365,7 @@ export function BearRig({
 
         {/* ── ACCESSORY — Teddy A: knit scarf collar ─────────────────────── */}
         {isA && (
-          <g stroke={scarf2} strokeWidth="1.5">
+          <g data-joint="scarfKnot" stroke={scarf2} strokeWidth="1.5">
             <path
               d="M-42-100q42 15 84 0v14q-42 18-84 0Z"
               fill={scarf1}

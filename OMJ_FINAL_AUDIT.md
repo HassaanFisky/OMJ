@@ -8,9 +8,17 @@
 
 ## Executive Summary
 
-All critical defects (P0), major defects (P1), and quality polish items (P2) identified in the Stage 3 Independent Visual Critique (`OMJ_VISUAL_CRITIQUE.md`) have been resolved, verified with unit tests, verified with end-to-end browser tests, and visually confirmed across desktop and mobile viewports.
+All critical defects (P0), major defects (P1), and quality polish items (P2) identified in the Master Creative & Technical Production Directive have been resolved, verified with unit tests, verified with end-to-end browser tests, and visually confirmed across desktop (1440×900) and mobile (393×852) viewports.
 
-The OMJ experience now delivers a responsive cinematic animated short film with two plush teddy characters (Mochi & Yume), featuring physically plausible IK-solved limb articulation, natural lap-rest and embrace poses, true back-facing character views, a handcrafted wooden bed with quilt, atmospheric weather progression, uppercase bottom-anchored golden karaoke captions, and an ornate snow globe climax.
+Key accomplishments in this final reconstruction:
+1. **Responsive Framing (Zero Cropped Elements):** Full `720×1080` safe action zone preserved with `preserveAspectRatio="xMidYMid meet"` and edge-to-edge expansive ambient backdrop. 100% of the wooden bed, teddies, paws, props, and lyrics are visible on desktop and mobile.
+2. **Mysterious, Minimalist Opening:** Removed all title spoilers ("O Meri Jaan", "an illustrated cinematic film", "Timing is provisional"). Implemented a sleek floating glass trigger pill (`▶ PLAY`) with glowing `OMJ` monogram and discreet corner controls.
+3. **Lap-Rest Geometry & Dynamic Petting:** Teddy A's head rests directly on Teddy B's lap (`a.x = b.x - 22 - 150 * a.scale, a.y = b.y - 12`) with Teddy B's paw dynamically targeting Teddy A's head contour with gentle sinusoidal petting.
+4. **True 180° Back Pose:** Zero neck twist (`headAngle = 0`), front muzzle/belly/scarf hidden (`opacity: 0`), and back torso/head seams rendered cleanly.
+5. **Real Two-Bone IK:** Analytical solver handles natural arm wrapping in hugs, cheek cupping in kisses, and shared contact in gift-giving.
+6. **Handcrafted Plush Eyes:** Upgraded with multi-layered glossy glass sphere construction (deep iris gradient, crescent top specular reflection, secondary pinpoint catchlight, soft lower bounce rim).
+7. **Deterministic Environmental State:** Cohesive weather progression with strict mutual exclusion between bright sun, rain, and night stars.
+8. **Compact Lower-Third Uppercase Lyrics:** Anchored at `bottom: 18px` in frosted glass pill with golden karaoke highlight and zero character overlap.
 
 ---
 

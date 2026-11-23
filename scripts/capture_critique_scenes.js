@@ -51,6 +51,9 @@ async function run() {
     mimeType: "audio/wav",
     buffer: diagnosticWav(164.375),
   });
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: path.join(outDir, "critique-desktop-00-entrance.png") });
+
   await page.getByRole("button", { name: "PLAY OMJ", exact: true }).click();
   await page.waitForTimeout(500);
 
@@ -81,6 +84,9 @@ async function run() {
     mimeType: "audio/wav",
     buffer: diagnosticWav(164.375),
   });
+  await pageM.waitForTimeout(300);
+  await pageM.screenshot({ path: path.join(outDir, "critique-mobile-00-entrance.png") });
+
   await pageM.getByRole("button", { name: "PLAY OMJ", exact: true }).click();
   await pageM.waitForTimeout(500);
 

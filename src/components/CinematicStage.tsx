@@ -11,6 +11,7 @@ import { createParticleEngine } from "../animation/ParticleEngine";
 import { BearRig } from "../characters/BearRig";
 import { createBearPainter } from "../characters/BearAnimations";
 import {
+  attachHand,
   targetFor,
   worldPoint,
   type Frame,
@@ -92,7 +93,6 @@ export const CinematicStage = memo(function CinematicStage({
   const canvas = useRef<HTMLCanvasElement>(null);
   const lyrics = useRef<LyricsHandle>(null);
   const reduced = useReducedMotion();
-  const [viewBox, setViewBox] = useState("0 0 720 1080");
 
   useLayoutEffect(() => {
     const element = root.current!;
@@ -152,8 +152,14 @@ export const CinematicStage = memo(function CinematicStage({
 
       opacity("room", env.room);
       opacity("window", env.window);
-      opacity("sun", env.sun);
-      opacity("moon", 1 - env.sun * 0.75);
+
+      // Strict mutual exclusion: never render bright sunbeams simultaneously with active rain or night moon
+      const isRain = env.rain > 0.15;
+      const effectiveSun = isRain ? 0 : env.sun;
+      const effectiveMoon = isRain ? 0.22 : (effectiveSun > 0.4 ? 0 : 1 - effectiveSun * 0.75);
+
+      opacity("sun", effectiveSun);
+      opacity("moon", effectiveMoon);
       opacity("cold", env.cold * 0.16);
       opacity("bed", env.bench);
       opacity("message", env.message);
@@ -263,6 +269,24 @@ export const CinematicStage = memo(function CinematicStage({
         nodes[name]!.setAttribute("opacity", String(pose.alpha * 0.15));
       }
 
+      // Dynamic real two-bone IK solver contact resolution
+      if (frame.action === "lap") {
+        const headWorld = worldPoint(frame.a, 0, -150);
+        const pet = reduced ? 0 : Math.sin(time * 3) * 6;
+        attachHand(frame.b, "left", headWorld.x + pet, headWorld.y - 18, 1);
+      } else if (frame.action === "kiss") {
+        attachHand(frame.a, "right", frame.b.x - 14, frame.b.y - 58, 1);
+        attachHand(frame.b, "left", frame.a.x + 14, frame.a.y - 58, 1);
+      } else if (frame.action === "embrace") {
+        attachHand(frame.a, "left", frame.b.x - 18, frame.b.y - 34, 1);
+        attachHand(frame.a, "right", frame.b.x + 18, frame.b.y - 34, 1);
+        attachHand(frame.b, "left", frame.a.x - 18, frame.a.y - 34, 1);
+        attachHand(frame.b, "right", frame.a.x + 18, frame.a.y - 34, 1);
+      } else if (frame.action === "gifts") {
+        attachHand(frame.a, "right", 360, 850, 0.85);
+        attachHand(frame.b, "left", 360, 850, 0.85);
+      }
+
       paintA(frame.a, time, reduced, env.sun);
       paintB(frame.b, time, reduced, env.sun);
 
@@ -291,14 +315,8 @@ export const CinematicStage = memo(function CinematicStage({
     }
 
     function resizeCaption() {
-      // Compute a responsive viewBox that expands width on wide screens
-      // while keeping height fixed at 1080 (never vertical-slice characters).
-      const { width: w, height: h } = element.getBoundingClientRect();
-      const aspect = w / h;
-      const stageH = 1080;
-      const stageW = Math.max(720, aspect * stageH);
-      const minX = (720 - stageW) / 2;
-      setViewBox(`${minX} 0 ${stageW} ${stageH}`);
+      // Safe action zone 720x1080 preserved via preserveAspectRatio="xMidYMid meet"
+      void element.getBoundingClientRect();
     }
 
     const resizeObserver = new ResizeObserver(resizeCaption);
@@ -328,7 +346,7 @@ export const CinematicStage = memo(function CinematicStage({
       <div className="sky-base" aria-hidden="true" />
 
       <div className="film-surface" aria-hidden="true">
-        <svg className="art art-back" viewBox={viewBox} preserveAspectRatio="xMidYMid meet">
+        <svg className="art art-back" viewBox="0 0 720 1080" preserveAspectRatio="xMidYMid meet">
           <defs>
             <radialGradient id="moon-halo">
               <stop stopColor="#f6dfa8" stopOpacity=".22" />
@@ -407,7 +425,7 @@ export const CinematicStage = memo(function CinematicStage({
 
         <canvas ref={canvas} className="weather" />
 
-        <svg className="art art-front" viewBox={viewBox} preserveAspectRatio="xMidYMid meet">
+        <svg className="art art-front" viewBox="0 0 720 1080" preserveAspectRatio="xMidYMid meet">
           <defs>
             <clipPath id="imagination-clip">
               <rect x="151" y="277" width="418" height="263" rx="88" />

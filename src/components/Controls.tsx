@@ -48,7 +48,7 @@ export function Icon({
 export function IntroScreen({
   snapshot,
   ready,
-  draft,
+  draft: _draft,
   onPlay,
   onFile,
   onTranscript,
@@ -62,65 +62,48 @@ export function IntroScreen({
 }) {
   return (
     <section className="entrance" aria-labelledby="omj-title">
-      <svg className="entrance-emblem" viewBox="0 0 60 60" aria-hidden="true">
-        <circle
-          cx="30"
-          cy="30"
-          r="27"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth=".7"
-          opacity=".25"
-        />
-        <path
-          d="M39 14C20 15 16 36 33 44C18 43 11 29 18 20C23 12 33 10 39 14Z"
-          fill="currentColor"
-        />
-        <path
-          d="m43 25 2 5 5 2-5 2-2 5-2-5-5-2 5-2Z"
-          fill="currentColor"
-        />
-      </svg>
+      <h1 id="omj-title" className="sr-only">OMJ</h1>
 
-      <p className="eyebrow">an illustrated cinematic film</p>
-      <h1 id="omj-title">OMJ</h1>
-      <p className="subtitle">O Meri Jaan</p>
-      <span className="title-rule" />
+      {/* Mysterious, minimalist floating trigger pill over live animated world */}
+      <div className="entrance-trigger-wrap">
+        <button
+          className="primary-button trigger-pill"
+          disabled={!ready}
+          onClick={onPlay}
+          aria-label={snapshot.status === "ended" ? "REPLAY OMJ" : "PLAY OMJ"}
+        >
+          <span className="trigger-monogram">OMJ</span>
+          <span className="trigger-dot" aria-hidden="true">✦</span>
+          <Icon name="play" />
+          <span>{snapshot.status === "ended" ? "REPLAY OMJ" : "PLAY OMJ"}</span>
+        </button>
+      </div>
 
-      <button
-        className="primary-button"
-        disabled={!ready}
-        onClick={onPlay}
-      >
-        <Icon name="play" />
-        {snapshot.status === "ended" ? "REPLAY OMJ" : "PLAY OMJ"}
-      </button>
-
-      <div className="entrance-utilities">
-        <label className="file-control">
-          <span>{snapshot.duration ? "Change audio" : "Choose audio"}</span>
+      {/* Discreet corner controls: clean, non-intrusive icon buttons */}
+      <div className="entrance-corner-tools">
+        <label className="corner-icon-button file-control" title="Choose or change audio file">
+          <span className="corner-icon-text" aria-hidden="true">♫</span>
           <input
             type="file"
             aria-label="Choose audio file"
             accept="audio/*,.mp3,.m4a,.aac,.wav,.ogg,.webm,.flac"
             onChange={onFile}
           />
+          <span className="sr-only">
+            {snapshot.duration ? "Change audio" : "Choose audio"}
+          </span>
         </label>
 
-        {snapshot.duration > 0 && (
-          <span>{formatTime(snapshot.duration)} · audio ready</span>
-        )}
+        <button
+          className="corner-icon-button transcript-link"
+          onClick={onTranscript}
+          aria-label="Read lyrics"
+          title="Read lyrics transcript"
+        >
+          <span className="corner-icon-text" aria-hidden="true">Aa</span>
+          <span className="sr-only">Read lyrics</span>
+        </button>
       </div>
-
-      {draft && (
-        <p className="draft-indicator">Timing is provisional</p>
-      )}
-
-      <p className="local-note">A chosen file stays on this device.</p>
-
-      <button className="transcript-link" onClick={onTranscript}>
-        Read lyrics
-      </button>
     </section>
   );
 }
