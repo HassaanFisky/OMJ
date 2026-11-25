@@ -1,8 +1,15 @@
 /**
- * BearRig — Premium plush teddy character SVG rig.
- * Chubby, cuddly anatomy with layered glossy eyes, blush, and plush texture.
- * Character A (cream/honey) = male waiting teddy
- * Character B (lavender/rose) = female guiding-light teddy
+ * BearRig — Procedural 3D-shaded kinematic plush character rig.
+ *
+ * Character A ("Mochi") = Male plush bear (caramel-tan volumetric 3D shading, bare neck, sculpted brows)
+ * Character B ("Yume")  = Female plush bear (pastel lilac-lavender 3D shading, bare neck, eyelashes, pink satin ribbon bow)
+ *
+ * Design invariants:
+ * - 100% earless smooth dome head across front, 3/4, profile, and back views
+ * - Zero dashed stitch seams, zero forehead/cheek wrinkles or dots
+ * - Seamless capsule limbs with joint-crease ambient occlusion
+ * - Exact left/right paw chirality: thumbs ALWAYS point inward toward body centerline
+ * - Smooth 360-degree yaw support with rounded tail puff and rear bow visibility
  */
 export function BearRig({
   id,
@@ -13,387 +20,538 @@ export function BearRig({
 }) {
   const isA = variant === "a";
 
-  // ── Palette ────────────────────────────────────────────────────────────────
-  const furLight  = isA ? "#fdf0da" : "#f0dff0";
-  const furMid    = isA ? "#e8cfaa" : "#d4b8d8";
-  const furShadow = isA ? "#c4a07a" : "#a87cb8";
-  const furDeep   = isA ? "#a07a52" : "#8a5a9c";
-  const patch     = isA ? "#fff6e8" : "#f5ecf8";
-  const blush     = isA ? "#e8a090" : "#da90b8";
-  const nose      = "#3e2723";
-  const eyeDark   = "#1a0e22";
-  const scarf1    = isA ? "#9c83b0" : "#8ea8c8";
-  const scarf2    = isA ? "#7a6490" : "#6e8aaa";
-  const accessory = isA ? "#7a6490" : "#dca3b9";
+  // ── Volumetric 3D Shading Palettes ─────────────────────────────────────────
+  const furLight  = isA ? "#e6b17a" : "#e8d5f5";
+  const furMid    = isA ? "#c98b50" : "#c8a6e0";
+  const furShadow = isA ? "#9b622e" : "#9d77ba";
+  const furDeep   = isA ? "#7a491d" : "#765196";
+  const patch     = isA ? "#f6dec2" : "#f7eefa";
+  const blushCol  = isA ? "#e08e79" : "#e88fb8";
+  const noseCol   = "#341e19";
+  const noseHi    = "#8c6154";
+  const eyeDark   = "#170b1e";
+  const bowMain   = "#f2adc9";
+  const bowMid    = "#e08cb0";
+  const bowDark   = "#b56186";
+  const bowHi     = "#fde3ee";
 
-  const gradId     = `${id}-fur`;
-  const gradBodyId = `${id}-body`;
-  const eyeGradId  = `${id}-eye`;
-  const eyeShineId = `${id}-shine`;
-  const earInId    = `${id}-earin`;
+  const gradFurId    = `${id}-fur`;
+  const gradBodyId   = `${id}-body`;
+  const gradHeadId   = `${id}-head`;
+  const gradLimbId   = `${id}-limb`;
+  const gradBlushId  = `${id}-blush`;
+  const eyeGradId    = `${id}-eye`;
+  const eyeShineId   = `${id}-shine`;
 
   return (
     <g data-bear={id} opacity="0">
       <defs>
-        {/* Fur surface gradient — light top-left to deep bottom-right */}
-        <linearGradient id={gradId} x1="0" y1="0" x2=".65" y2="1">
-          <stop stopColor={furLight} />
-          <stop offset=".45" stopColor={furMid} />
-          <stop offset="1" stopColor={furShadow} />
-        </linearGradient>
-
-        {/* Body gradient — slightly warmer/deeper for torso volume */}
-        <linearGradient id={gradBodyId} x1="0" y1="0" x2=".4" y2="1">
-          <stop stopColor={furMid} />
-          <stop offset="1" stopColor={furDeep} />
-        </linearGradient>
-
-        {/* Eye iris gradient — deep dark pupil with subtle warm tint */}
-        <radialGradient id={eyeGradId} cx=".35" cy=".3" r=".7">
-          <stop stopColor="#2d1a38" />
-          <stop offset=".5" stopColor={eyeDark} />
-          <stop offset="1" stopColor="#0a0410" />
+        <radialGradient id={gradFurId} cx="0.34" cy="0.28" r="0.72">
+          <stop offset="0%" stopColor={furLight} />
+          <stop offset="52%" stopColor={furMid} />
+          <stop offset="100%" stopColor={furShadow} />
         </radialGradient>
 
-        {/* Eye specular / shine gradient */}
-        <radialGradient id={eyeShineId} cx=".3" cy=".25" r=".6">
-          <stop stopColor="#ffffff" stopOpacity=".92" />
-          <stop offset="1" stopColor="#ffffff" stopOpacity="0" />
+        <radialGradient id={gradBodyId} cx="0.36" cy="0.26" r="0.74">
+          <stop offset="0%" stopColor={furLight} />
+          <stop offset="54%" stopColor={furMid} />
+          <stop offset="86%" stopColor={furShadow} />
+          <stop offset="100%" stopColor={furDeep} />
         </radialGradient>
 
-        {/* Inner ear gradient */}
-        <radialGradient id={earInId} cx=".5" cy=".5" r=".5">
-          <stop stopColor={patch} />
-          <stop offset="1" stopColor={blush} stopOpacity=".5" />
+        <radialGradient id={gradHeadId} cx="0.36" cy="0.30" r="0.70">
+          <stop offset="0%" stopColor={furLight} />
+          <stop offset="56%" stopColor={furMid} />
+          <stop offset="88%" stopColor={furShadow} />
+          <stop offset="100%" stopColor={furDeep} />
+        </radialGradient>
+
+        <linearGradient id={gradLimbId} x1="0.15" y1="0" x2="0.85" y2="1">
+          <stop offset="0%" stopColor={furLight} />
+          <stop offset="55%" stopColor={furMid} />
+          <stop offset="100%" stopColor={furShadow} />
+        </linearGradient>
+
+        <radialGradient id={gradBlushId} cx="0.5" cy="0.5" r="0.5">
+          <stop offset="0%" stopColor={blushCol} stopOpacity="0.46" />
+          <stop offset="70%" stopColor={blushCol} stopOpacity="0.18" />
+          <stop offset="100%" stopColor={blushCol} stopOpacity="0" />
+        </radialGradient>
+
+        <radialGradient id={eyeGradId} cx="0.38" cy="0.32" r="0.72">
+          <stop offset="0%" stopColor={isA ? "#3c2345" : "#442242"} />
+          <stop offset="50%" stopColor={eyeDark} />
+          <stop offset="100%" stopColor="#07030c" />
+        </radialGradient>
+
+        <radialGradient id={eyeShineId} cx="0.3" cy="0.28" r="0.62">
+          <stop stopColor="#ffffff" stopOpacity="0.96" />
+          <stop offset="100%" stopColor="#ffffff" stopOpacity="0" />
         </radialGradient>
       </defs>
 
-      {/* ── LEGS ──────────────────────────────────────────────────────────── */}
-      {(["left", "right"] as const).map((side) => (
-        <g key={side} data-joint={`${side}Leg`}>
-          {/* Upper leg — thick, chubby ellipse */}
-          <ellipse
-            cy="22" rx="22" ry="34"
-            fill={`url(#${gradBodyId})`}
-            stroke={furShadow} strokeWidth="1.4" strokeLinejoin="round"
-          />
-          <g data-joint={`${side}Foot`}>
-            {/* Foot pad — wide, rounded plush paw */}
-            <ellipse
-              cy="51" rx="28" ry="19"
-              fill={`url(#${gradId})`}
-              stroke={furShadow} strokeWidth="1.4" strokeLinejoin="round"
-            />
-            {/* Paw pad patch */}
-            <ellipse
-              cy="54" rx="15" ry="10"
-              fill={patch} stroke="none" opacity=".8"
-            />
-            {/* Toe dots */}
-            {[-7, 0, 7].map((tx) => (
-              <circle key={tx} cx={tx} cy="49" r="2.8"
-                fill={furShadow} opacity=".35" />
-            ))}
-          </g>
-        </g>
-      ))}
-
-      {/* ── TORSO ─────────────────────────────────────────────────────────── */}
-      {/* Main body — large, compact, slightly chubby */}
-      <ellipse
-        cy="-52" rx="52" ry="68"
-        fill={`url(#${gradId})`}
-        stroke={furShadow} strokeWidth="1.6" strokeLinejoin="round"
-      />
-      {/* Front belly patch & front seam — fades out when facing back */}
-      <g data-joint="belly">
-        <ellipse
-          cy="-40" rx="31" ry="42"
-          fill={patch} stroke="none" opacity=".68"
+      {/* ── ROUNDED TAIL PUFF (visible in profile & back yaw views) ────────── */}
+      <g data-joint="tailPuff" opacity="0">
+        <circle
+          cx="0"
+          cy="-12"
+          r="13.5"
+          fill={`url(#${gradFurId})`}
+          stroke={furShadow}
+          strokeWidth="1.2"
         />
+        <ellipse cx="-3" cy="-16" rx="5.5" ry="4" fill={furLight} opacity="0.42" />
+      </g>
+
+      {/* ── ARTICULATED CAPSULE LEGS (Hip -> Thigh -> Knee -> Shin -> Foot) ─ */}
+      {(["left", "right"] as const).map((side) => {
+        const sign = side === "left" ? -1 : 1;
+        return (
+          <g key={side} data-joint={`${side}Leg`}>
+            {/* Smooth capsule thigh */}
+            <rect
+              x="-16.5"
+              y="-6"
+              width="33"
+              height="38"
+              rx="16.5"
+              fill={`url(#${gradLimbId})`}
+              stroke={furShadow}
+              strokeOpacity="0.42"
+              strokeWidth="1.1"
+            />
+            {/* Hip socket ambient occlusion */}
+            <ellipse
+              cy="-2"
+              rx="13"
+              ry="5"
+              fill={furDeep}
+              opacity="0.16"
+            />
+
+            {/* Knee pivot at (0, 24) */}
+            <g data-joint={`${side}Knee`}>
+              {/* Soft joint-crease occlusion */}
+              <ellipse
+                cy="1"
+                rx="13"
+                ry="6"
+                fill={furDeep}
+                opacity="0.15"
+              />
+              {/* Smooth capsule shin/calf */}
+              <rect
+                x="-15"
+                y="-6"
+                width="30"
+                height="36"
+                rx="15"
+                fill={`url(#${gradLimbId})`}
+                stroke={furShadow}
+                strokeOpacity="0.4"
+                strokeWidth="1.1"
+              />
+
+              {/* Ankle & Grounded Padded Foot */}
+              <g data-joint={`${side}Foot`}>
+                <ellipse
+                  cx={sign * 4}
+                  cy="6"
+                  rx="22"
+                  ry="13.5"
+                  fill={`url(#${gradFurId})`}
+                  stroke={furShadow}
+                  strokeWidth="1.3"
+                />
+                <ellipse
+                  cx={sign * 5}
+                  cy="8"
+                  rx="13"
+                  ry="8"
+                  fill={patch}
+                  opacity="0.88"
+                />
+                {[-5.2, 0, 5.2].map((tx) => (
+                  <ellipse
+                    key={tx}
+                    cx={sign * 5 + tx}
+                    cy="2.2"
+                    rx="3.1"
+                    ry="2.5"
+                    fill={patch}
+                    stroke={furShadow}
+                    strokeWidth="0.6"
+                    opacity="0.72"
+                  />
+                ))}
+              </g>
+            </g>
+          </g>
+        );
+      })}
+
+      {/* ── VOLUMETRIC TORSO & BARE NECK SHADOW ──────────────────────────── */}
+      <g data-joint="torso">
+        <ellipse
+          cy="-52"
+          rx="49"
+          ry="62"
+          fill={`url(#${gradBodyId})`}
+          stroke={furShadow}
+          strokeOpacity="0.7"
+          strokeWidth="1.4"
+        />
+
+        {/* Smooth creamy front belly patch (no stitch seams!) */}
+        <g data-joint="belly">
+          <ellipse
+            cy="-42"
+            rx="30"
+            ry="39"
+            fill={patch}
+            opacity="0.84"
+          />
+        </g>
+
+        {/* Subtle head-over-neck ambient occlusion under bare neck */}
+        <ellipse
+          cy="-98"
+          rx="32"
+          ry="10"
+          fill={furDeep}
+          opacity="0.26"
+        />
+
+        {/* Soft volumetric torso rim highlight */}
         <path
-          d="M0-82v60"
+          d="M-42 -80 Q-49 -48 -39 -18"
           fill="none"
-          stroke={furShadow} strokeWidth=".8"
-          strokeDasharray="2 7" strokeLinecap="round"
-          opacity=".35"
+          stroke="#ffffff"
+          strokeWidth="4"
+          strokeLinecap="round"
+          opacity="0.16"
         />
       </g>
-      {/* Back spine seam stitch — visible when turned facing back */}
-      <path
-        data-joint="backTorsoSeam"
-        d="M0-112v96"
-        fill="none"
-        stroke={furShadow} strokeWidth="1.1"
-        strokeDasharray="3 7" strokeLinecap="round"
-        opacity="0"
-      />
-      {/* Rim light on body left edge */}
-      <path
-        d="M-45-80q-14 30-8 68"
-        fill="none" stroke="#ffffff" strokeWidth="4"
-        strokeLinecap="round" opacity=".07"
-      />
 
-      {/* ── ARMS ──────────────────────────────────────────────────────────── */}
-      {(["left", "right"] as const).map((side) => (
-        <g key={side} data-joint={`${side}Arm`}>
-          {/* Upper arm — thick, short */}
-          <ellipse
-            cy="18" rx="17" ry="26"
-            fill={`url(#${gradId})`}
-            stroke={furShadow} strokeWidth="1.4" strokeLinejoin="round"
-          />
-          <g data-joint={`${side}Forearm`}>
-            {/* Lower arm */}
-            <ellipse
-              cy="19" rx="16" ry="25"
-              fill={`url(#${gradId})`}
-              stroke={furShadow} strokeWidth="1.4" strokeLinejoin="round"
+      {/* ── ARTICULATED CAPSULE ARMS + CHIRAL PAWS (THUMB ALWAYS INWARD) ───── */}
+      {(["left", "right"] as const).map((side) => {
+        const sign = side === "left" ? -1 : 1;
+        // Body centerline is at x=0. For left arm (x < 0, sign = -1), inward is +x (-sign).
+        // For right arm (x > 0, sign = +1), inward is -x (-sign).
+        const inward = -sign;
+        return (
+          <g key={side} data-joint={`${side}Arm`}>
+            {/* Upper capsule arm */}
+            <rect
+              x="-14.5"
+              y="-6"
+              width="29"
+              height="44"
+              rx="14.5"
+              fill={`url(#${gradLimbId})`}
+              stroke={furShadow}
+              strokeOpacity="0.42"
+              strokeWidth="1.1"
             />
-            {/* Paw — large round hand */}
-            <circle
-              cy="37" r="17"
-              fill={`url(#${gradId})`}
-              stroke={furShadow} strokeWidth="1.4"
-            />
-            {/* Paw pad */}
-            <ellipse
-              cy="40" rx="10" ry="9"
-              fill={patch} stroke="none" opacity=".85"
-            />
-            {/* Finger dots */}
-            {[-7, 0, 7].map((tx) => (
-              <circle key={tx} cx={tx} cy="33" r="2.5"
-                fill={furShadow} opacity=".3" />
-            ))}
+            <g data-joint={`${side}Forearm`}>
+              {/* Soft elbow crease occlusion */}
+              <ellipse
+                cy="0"
+                rx="11.5"
+                ry="4.5"
+                fill={furDeep}
+                opacity="0.14"
+              />
+              {/* Forearm capsule */}
+              <rect
+                x="-13"
+                y="-5"
+                width="26"
+                height="41"
+                rx="13"
+                fill={`url(#${gradLimbId})`}
+                stroke={furShadow}
+                strokeOpacity="0.4"
+                strokeWidth="1.1"
+              />
+              {/* Chiral Paw: thumb ALWAYS points inward toward body centerline */}
+              <g data-joint={`${side}Hand`} transform="translate(0 34)">
+                <ellipse
+                  cy="2"
+                  rx="13"
+                  ry="11.5"
+                  fill={`url(#${gradFurId})`}
+                  stroke={furShadow}
+                  strokeWidth="1.2"
+                />
+                {/* Padded palm facing inward toward torso */}
+                <ellipse
+                  cx={inward * 1.5}
+                  cy="3.5"
+                  rx="7.6"
+                  ry="6.5"
+                  fill={patch}
+                  opacity="0.88"
+                />
+                {/* Inward-pointing thumb */}
+                <ellipse
+                  cx={inward * 10.5}
+                  cy="-1"
+                  rx="4.4"
+                  ry="6.6"
+                  transform={`rotate(${inward * 26} ${inward * 10.5} -1)`}
+                  fill={`url(#${gradFurId})`}
+                  stroke={furShadow}
+                  strokeWidth="1.05"
+                />
+                {/* 4 smooth rounded fingers */}
+                {[-6.3, -2.1, 2.1, 6.3].map((fx, fi) => {
+                  const fy = fi === 1 || fi === 2 ? 11.8 : 10.3;
+                  const rx = 3.0;
+                  const ry = fi === 1 || fi === 2 ? 4.9 : 4.2;
+                  return (
+                    <ellipse
+                      key={fx}
+                      cx={fx}
+                      cy={fy}
+                      rx={rx}
+                      ry={ry}
+                      fill={`url(#${gradFurId})`}
+                      stroke={furShadow}
+                      strokeWidth="0.95"
+                    />
+                  );
+                })}
+              </g>
+            </g>
           </g>
-        </g>
-      ))}
+        );
+      })}
 
-      {/* ── HEAD ──────────────────────────────────────────────────────────── */}
+      {/* ── 100% EARLESS SMOOTH DOME HEAD & EXPRESSIVE FACE ──────────────── */}
       <g data-joint="head">
-        {/* Ear outer circles — soft rounded */}
-        <circle cx="-46" cy="-198" r="25"
-          fill={`url(#${gradId})`}
-          stroke={furShadow} strokeWidth="1.6"
-        />
-        <circle cx="46" cy="-198" r="25"
-          fill={`url(#${gradId})`}
-          stroke={furShadow} strokeWidth="1.6"
-        />
-        {/* Ear inner — velvet pad */}
-        <circle cx="-46" cy="-198" r="14"
-          fill={`url(#${earInId})`} stroke="none"
-        />
-        <circle cx="46" cy="-198" r="14"
-          fill={`url(#${earInId})`} stroke="none"
-        />
-
-        {/* Main head — large, beautifully rounded */}
+        {/* Pure smooth spherical/dome silhouette — ZERO ears, ZERO nubs, ZERO notches */}
         <ellipse
-          cy="-152" rx="63" ry="62"
-          fill={`url(#${gradId})`}
-          stroke={furShadow} strokeWidth="1.6" strokeLinejoin="round"
+          cy="-152"
+          rx="63"
+          ry="58"
+          fill={`url(#${gradHeadId})`}
+          stroke={furShadow}
+          strokeOpacity="0.75"
+          strokeWidth="1.4"
         />
 
-        {/* Head top-left specular rim highlight */}
+        {/* Soft volumetric top-left dome specular highlight */}
         <path
-          d="M-40-200q35-21 60 0"
-          fill="none" stroke="#ffffff" strokeWidth="10"
-          strokeLinecap="round" opacity=".07"
+          d="M-38 -195 Q0 -210 38 -195"
+          fill="none"
+          stroke="#ffffff"
+          strokeWidth="7"
+          strokeLinecap="round"
+          opacity="0.16"
         />
 
-        {/* ── FACE GROUP ───────────────────────────────────────────────────── */}
+        {/* ── FRONT / 3-QUARTER / PROFILE FACE FEATURES ──────────────────── */}
         <g data-joint="face">
-          {/* Cheek blush — soft bilateral ovals */}
-          <ellipse
-            cx="-38" cy="-130" rx="16" ry="10"
-            fill={blush} stroke="none" opacity=".32"
+          {/* Smooth radial rosy cheek blush (Yume stronger, Mochi subtle) */}
+          <ellipse cx="-38" cy="-131" rx="16" ry="10" fill={`url(#${gradBlushId})`} opacity={isA ? 0.45 : 0.92} />
+          <ellipse cx="38" cy="-131" rx="16" ry="10" fill={`url(#${gradBlushId})`} opacity={isA ? 0.45 : 0.92} />
+
+          {/* Subtle affectionate cheek kiss mark (only visible after kiss moments) */}
+          <g data-joint="kissMarks" opacity="0" transform="translate(36 -127) rotate(-14)">
+            <path
+              d="M-5 -1 Q-2 -4 0 -1.5 Q2 -4 5 -1 Q2 1.5 0 0.5 Q-2 1.5 -5 -1 Z"
+              fill="#db7696"
+              opacity="0.72"
+            />
+            <path
+              d="M-4.5 2 Q0 5 4.5 2 Q0 3 -4.5 2 Z"
+              fill="#db7696"
+              opacity="0.62"
+            />
+          </g>
+
+          {/* Smooth creamy oval muzzle */}
+          <ellipse cy="-123" rx="26.5" ry="19.5" fill={patch} />
+
+          {/* Expressive sculpted eyebrows */}
+          <path
+            data-joint="leftBrow"
+            d="M-30 -173 Q-21 -177 -12 -173"
+            fill="none"
+            stroke={furDeep}
+            strokeWidth="2.5"
+            strokeLinecap="round"
           />
-          <ellipse
-            cx="38" cy="-130" rx="16" ry="10"
-            fill={blush} stroke="none" opacity=".32"
+          <path
+            data-joint="rightBrow"
+            d="M12 -173 Q21 -177 30 -173"
+            fill="none"
+            stroke={furDeep}
+            strokeWidth="2.5"
+            strokeLinecap="round"
           />
 
-          {/* Muzzle — slightly protruding oval */}
-          <ellipse
-            cy="-122" rx="28" ry="22"
-            fill={patch} stroke="none"
-          />
-
-          {/* ── EYES (premium layered construction) ─────────────────────── */}
+          {/* Layered Glossy Eyes + Directional Gaze */}
           <g data-joint="eyes">
             {/* Left eye */}
-            <g transform="translate(-21 -157)">
-              {/* Eye socket / white sclera */}
-              <ellipse rx="8.5" ry="11" fill="#fcf9f5" />
-              {/* Iris gradient */}
-              <ellipse rx="7.2" ry="9.5" fill={`url(#${eyeGradId})`} />
-              {/* Soft lower bounce rim */}
-              <ellipse cy="3.5" rx="5.5" ry="3" fill={isA ? "#fce4c8" : "#f0d4ea"} opacity=".35" />
-              {/* Pupil — deep center */}
-              <ellipse cy="0.5" rx="4.2" ry="5.8" fill="#08030e" />
-              {/* Crescent top specular reflection */}
-              <path
-                d="M-4.5 -5.5 C-2 -7.8, 2 -7.8, 4.5 -5.5 C2 -6.6, -2 -6.6, -4.5 -5.5 Z"
-                fill="#ffffff" opacity=".88"
-              />
-              {/* Primary specular catchlight — top left */}
+            <g transform="translate(-21 -154)">
+              <ellipse rx="8.6" ry="10.8" fill="#fdfaf6" />
+              <ellipse rx="7.4" ry="9.4" fill={`url(#${eyeGradId})`} />
               <ellipse
-                cx="-2.5" cy="-3.5" rx="2.8" ry="3.2"
-                fill={`url(#${eyeShineId})`}
+                cy="3.4"
+                rx="5.4"
+                ry="2.8"
+                fill={isA ? "#fce4c8" : "#f2d6ec"}
+                opacity="0.34"
               />
-              {/* Secondary pinpoint catchlight — bottom right */}
-              <circle cx="2.6" cy="3" r="1.3"
-                fill="#ffffff" opacity=".8"
-              />
-              {/* Eyelid upper crease */}
+              <ellipse cy="0.5" rx="4.2" ry="5.6" fill="#07030d" />
               <path
-                d="M-7-9q7-5 14 0"
-                fill="none" stroke={furShadow} strokeWidth="1.5"
-                strokeLinecap="round" opacity=".5"
+                d="M-4.2 -5.5 C-1.8 -7.8, 1.8 -7.8, 4.2 -5.5 C1.8 -6.6, -1.8 -6.6, -4.2 -5.5 Z"
+                fill="#ffffff"
+                opacity="0.9"
               />
+              <ellipse cx="-2.4" cy="-3.4" rx="2.9" ry="3.4" fill={`url(#${eyeShineId})`} />
+              <circle cx="2.5" cy="3" r="1.2" fill="#ffffff" opacity="0.82" />
+              {!isA && (
+                <path
+                  d="M-7.5 -7.5 L-10.8 -10.8 M-5.4 -9.2 L-7.6 -12.8"
+                  stroke="#2a1628"
+                  strokeWidth="1.6"
+                  strokeLinecap="round"
+                />
+              )}
             </g>
 
             {/* Right eye */}
-            <g transform="translate(21 -157)">
-              <ellipse rx="8.5" ry="11" fill="#fcf9f5" />
-              <ellipse rx="7.2" ry="9.5" fill={`url(#${eyeGradId})`} />
-              <ellipse cy="3.5" rx="5.5" ry="3" fill={isA ? "#fce4c8" : "#f0d4ea"} opacity=".35" />
-              <ellipse cy="0.5" rx="4.2" ry="5.8" fill="#08030e" />
-              <path
-                d="M-4.5 -5.5 C-2 -7.8, 2 -7.8, 4.5 -5.5 C2 -6.6, -2 -6.6, -4.5 -5.5 Z"
-                fill="#ffffff" opacity=".88"
-              />
+            <g transform="translate(21 -154)">
+              <ellipse rx="8.6" ry="10.8" fill="#fdfaf6" />
+              <ellipse rx="7.4" ry="9.4" fill={`url(#${eyeGradId})`} />
               <ellipse
-                cx="-2.5" cy="-3.5" rx="2.8" ry="3.2"
-                fill={`url(#${eyeShineId})`}
+                cy="3.4"
+                rx="5.4"
+                ry="2.8"
+                fill={isA ? "#fce4c8" : "#f2d6ec"}
+                opacity="0.34"
               />
-              <circle cx="2.6" cy="3" r="1.3"
-                fill="#ffffff" opacity=".8"
-              />
+              <ellipse cy="0.5" rx="4.2" ry="5.6" fill="#07030d" />
               <path
-                d="M-7-9q7-5 14 0"
-                fill="none" stroke={furShadow} strokeWidth="1.5"
-                strokeLinecap="round" opacity=".5"
+                d="M-4.2 -5.5 C-1.8 -7.8, 1.8 -7.8, 4.2 -5.5 C1.8 -6.6, -1.8 -6.6, -4.2 -5.5 Z"
+                fill="#ffffff"
+                opacity="0.9"
               />
+              <ellipse cx="-2.4" cy="-3.4" rx="2.9" ry="3.4" fill={`url(#${eyeShineId})`} />
+              <circle cx="2.5" cy="3" r="1.2" fill="#ffffff" opacity="0.82" />
+              {!isA && (
+                <path
+                  d="M7.5 -7.5 L10.8 -10.8 M5.4 -9.2 L7.6 -12.8"
+                  stroke="#2a1628"
+                  strokeWidth="1.6"
+                  strokeLinecap="round"
+                />
+              )}
             </g>
 
-            {/* Eyelashes — delicate upper fringe for Teddy B */}
-            {!isA && (
-              <g opacity=".6" stroke={furDeep} strokeWidth="1" strokeLinecap="round">
-                <path d="M-28-167l-2-4M-25-168l0-5M-14-168l2-4" />
-                <path d="M28-167l2-4M25-168l0-5M14-168l-2-4" />
-              </g>
-            )}
-
-            {/* Watery highlight overlay — emotional glimmer (opacity driven by tear) */}
-            <ellipse
-              data-joint="eyeWater"
-              cx="-21" cy="-157" rx="8.5" ry="5.5"
-              fill="#c8e8f8" opacity="0"
-            />
-            <ellipse
-              data-joint="eyeWaterR"
-              cx="21" cy="-157" rx="8.5" ry="5.5"
-              fill="#c8e8f8" opacity="0"
-            />
+            {/* Emotional glistening watery sheen */}
+            <ellipse data-joint="eyeWater" cx="-21" cy="-150" rx="7.8" ry="4.5" fill="#cae7f8" opacity="0" />
+            <ellipse data-joint="eyeWaterR" cx="21" cy="-150" rx="7.8" ry="4.5" fill="#cae7f8" opacity="0" />
           </g>
 
-          {/* Closed eyes — 3-phase crescent blink curves */}
+          {/* Soft upper eyelids */}
+          <g data-joint="eyelids" opacity="0">
+            <path d="M-30 -164 Q-21 -150 -12 -164 Z" fill={`url(#${gradHeadId})`} />
+            <path d="M12 -164 Q21 -150 30 -164 Z" fill={`url(#${gradHeadId})`} />
+          </g>
+
+          {/* Closed peaceful crescent eyes */}
           <g
             data-joint="closedEyes"
             fill="none"
-            stroke={furDeep}
+            stroke="#361f24"
             strokeWidth="2.6"
             strokeLinecap="round"
             opacity="0"
           >
-            <path d="M-30-157q9 7 18 0" />
-            <path d="M12-157q9 7 18 0" />
+            <path d="M-29 -153 Q-21 -144 -13 -153" />
+            <path d="M13 -153 Q21 -144 29 -153" />
           </g>
 
-          {/* Nose — tiny chocolate button */}
-          <path
-            d="M-7-130q7-7 14 0q0 8-7 9q-7-1-7-9"
-            fill={nose} stroke="none"
-          />
-          {/* Nose highlight */}
-          <circle cx="-2" cy="-133" r="1.8"
-            fill="#ffffff" opacity=".35"
-          />
+          {/* Animated crystal tears */}
+          <g data-joint="tears" fill="#bce2fa" stroke="#85bce0" strokeWidth="0.9" opacity="0">
+            <path d="M-27 -136 Q-34 -122 -27 -122 Q-20 -122 -27 -136 Z" />
+            <path d="M27 -136 Q20 -122 27 -122 Q34 -122 27 -136 Z" />
+          </g>
 
-          {/* Mouth — neutral gentle curve, deforms to sad via d-attr */}
+          {/* Button nose with micro specular highlight + muzzle mouth */}
+          <ellipse cy="-130" rx="8.4" ry="6" fill={noseCol} />
+          <ellipse cx="-2.4" cy="-132" rx="2.6" ry="1.4" fill={noseHi} opacity="0.72" />
+          <path d="M0 -124 V-118" stroke="#5a3832" strokeWidth="2" strokeLinecap="round" />
           <path
             data-joint="mouth"
-            d="M-10-115Q0-107 10-115"
+            d="M-10 -115 Q0 -109 10 -115"
             fill="none"
-            stroke={nose}
+            stroke="#5a3832"
             strokeWidth="2.2"
             strokeLinecap="round"
           />
-
-          {/* Tears — crystalline droplets, animated via transform + opacity */}
-          <g data-joint="tears" fill="#b8def8" stroke="#8bbfd8" strokeWidth=".8" opacity="0">
-            <path d="M-28-137q-9 14 0 14q9 0 0-14" />
-            <path d="M28-137q-9 14 0 14q9 0 0-14" />
-          </g>
         </g>
 
-        {/* Back-of-head seam (shown when facing away) */}
-        <path
-          data-joint="backSeam"
-          d="M0-200v72"
-          fill="none"
-          stroke={furShadow}
-          strokeWidth=".9"
-          strokeDasharray="2 7"
-          strokeLinecap="round"
-          opacity="0"
-        />
+        {/* ── SMOOTH BACK OF HEAD (ZERO STITCH LINES!) ───────────────────── */}
+        <g data-joint="backHead" opacity="0">
+          <ellipse
+            cy="-152"
+            rx="63"
+            ry="58"
+            fill={`url(#${gradBodyId})`}
+            stroke={furShadow}
+            strokeOpacity="0.65"
+            strokeWidth="1.4"
+          />
+          <path
+            d="M-36 -192 Q0 -207 36 -192"
+            fill="none"
+            stroke={furLight}
+            strokeWidth="5"
+            strokeLinecap="round"
+            opacity="0.2"
+          />
+        </g>
 
-        {/* ── ACCESSORY — Teddy B: rose bow on left ear ──────────────────── */}
+        {/* ── YUME ONLY: SOFT PINK SATIN RIBBON BOW ON UPPER-RIGHT HEAD CURVE ─ */}
         {!isA && (
-          <g fill={accessory} stroke="#b9819e" strokeWidth="1.4">
-            <path d="M34-196q-28-26-24 6q10 14 24-1" />
-            <path d="M38-196q28-26 25 6q-11 13-25-1" />
-            <circle cx="36" cy="-193" r="7" fill="#f0c6d0" stroke="none" />
-            <circle cx="36" cy="-193" r="3" fill="#ffffff" opacity=".5" stroke="none" />
-          </g>
-        )}
-
-        {/* ── ACCESSORY — Teddy A: knit scarf collar ─────────────────────── */}
-        {isA && (
-          <g data-joint="scarfKnot" stroke={scarf2} strokeWidth="1.5">
-            <path
-              d="M-42-100q42 15 84 0v14q-42 18-84 0Z"
-              fill={scarf1}
-            />
-            <path
-              d="M10-88q12 7 26 0l-2 50q-14 8-26-1Z"
-              fill={scarf2}
-            />
-            <path d="M12-50h21" stroke="#d1bddf" opacity=".8" />
+          <g data-joint="bow">
+            <g transform="translate(37 -191) rotate(22)">
+              {/* Left ribbon loop */}
+              <path
+                d="M-3 0 C-22 -18 -26 10 -6 6 C-2 5 -1 2 -3 0 Z"
+                fill={bowMain}
+                stroke={bowDark}
+                strokeWidth="1.3"
+              />
+              <path d="M-16 -3 Q-9 0 -4 0" stroke={bowHi} strokeWidth="1.6" strokeLinecap="round" fill="none" />
+              {/* Right ribbon loop */}
+              <path
+                d="M3 0 C22 -18 26 10 6 6 C2 5 1 2 3 0 Z"
+                fill={bowMain}
+                stroke={bowDark}
+                strokeWidth="1.3"
+              />
+              <path d="M16 -3 Q9 0 4 0" stroke={bowHi} strokeWidth="1.6" strokeLinecap="round" fill="none" />
+              {/* Soft hanging tails */}
+              <path d="M-2 3 L-11 21 L-3 18 Z" fill={bowMid} stroke={bowDark} strokeWidth="1" />
+              <path d="M2 3 L11 21 L3 18 Z" fill={bowMid} stroke={bowDark} strokeWidth="1" />
+              {/* Center satin knot */}
+              <ellipse cx="0" cy="1" rx="6" ry="5" fill={bowHi} stroke={bowDark} strokeWidth="1.2" />
+            </g>
           </g>
         )}
       </g>
 
-      {/* ── WARM INNER GLOW (sun-warmth light effect, opacity driven) ─────── */}
-      <g data-joint="warm" fill="#ffd08a" stroke="none" opacity="0">
-        <path d="M-44-192q-32 32-9 72q-32-33-15-62Z" />
-        <path d="M-42-78q-18 38-4 68q-24-32-12-60Z" />
+      {/* ── WARM GOLDEN RIM LIGHT OVERLAY ────────────────────────────────── */}
+      <g data-joint="warm" fill="#ffda96" opacity="0">
+        <path d="M-44 -195 Q-64 -158 -42 -112 Q-53 -158 -34 -189 Z" />
+        <path d="M-44 -80 Q-54 -42 -36 -12 Q-45 -44 -34 -74 Z" />
       </g>
-
-      {/* ── NOSE TIP HEART (Teddy B — subtle love accent) ──────────────────── */}
-      {!isA && (
-        <path
-          d="M-4.5-14q-7-8-11-2q-2 5 11 13q13-8 11-13q-4-6-11 2"
-          transform="translate(19 -1) scale(.52)"
-          fill="#d4a0bf"
-          stroke="none"
-        />
-      )}
     </g>
   );
 }

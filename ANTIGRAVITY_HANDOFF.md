@@ -1,78 +1,78 @@
 # Antigravity Handoff: OMJ — Living Storybook
-**Status:** Completed (Stage 4 of 4: Final Reconstruction & Quality Completion)  
-**Last Updated:** November 23, 2026  
+
+**Branch:** `feature/cinematic-rebuild` (created from `main` at `01ebf38`)  
 **Repository:** https://github.com/HassaanFisky/OMJ  
-**Production URL:** https://omj-iota.vercel.app  
-**Git Branch:** `main`
+**Production Reference:** https://omj-iota.vercel.app  
+**Last Updated:** November 25, 2026
 
 ---
 
-## 1. Project Overview
+## 1. Current Architecture Overview
 
-OMJ ("O Meri Jaan") is a cinematic animated experience featuring two plush teddy characters, Mochi (honey/cream) and Yume (lavender/rose), moving through an emotional narrative synchronized to audio and lyrics.
+OMJ is a full-bleed, horizontally tracking animated short film built with React 19, TypeScript, Vite, GSAP, layered SVG rigging, and camera-locked HTML5 Canvas particle rendering, synchronized deterministically to `audio.currentTime`.
 
-The experience is engineered as a zero-dependency HTML5 Canvas + SVG animation film engine built with React 19, TypeScript, and Vite.
-
----
-
-## 2. Key Architecture & Components
-
-```
+```text
 OMJ/
+├── api/
+│   └── scene-context.ts            # Vercel serverless function reading x-vercel-ip-* headers & Open-Meteo current weather
 ├── src/
 │   ├── animation/
-│   │   ├── FilmEngine.ts        # Dynamic continuous film timeline sampler with 2.5D virtual camera
-│   │   └── ParticleEngine.ts    # Multi-emitter canvas particle system (rain, snow, hearts, fireflies, mist)
+│   │   ├── FilmEngine.ts           # Deterministic GSAP shot sampler bound to audio.currentTime
+│   │   └── ParticleEngine.ts       # ViewBox-locked Canvas engine (window-clipped rain/snow/stars/frost + shooting star)
 │   ├── audio/
-│   │   └── AudioController.ts   # Audio playback, RAF tick synchronization, and event dispatch
+│   │   └── AudioController.ts      # Master HTMLAudioElement clock & RAF scheduler
 │   ├── characters/
-│   │   ├── BearAnimations.ts    # Analytical 2-bone IK arm solver, eye blink cycles, back seam & belly opacity
-│   │   └── BearRig.tsx          # Layered SVG character rig (plush textures, eyes, blush, seams, paws)
+│   │   ├── BearRig.tsx             # Plush teddies Mochi (A) & Yume (B): articulated knees, thumb+4-finger paws, brows, rear seams
+│   │   └── BearAnimations.ts       # 2-bone arm IK, grounded hip-knee-ankle walk/sit/kneel, blink & tear physics
 │   ├── components/
-│   │   ├── CinematicStage.tsx   # Core stage: responsive dynamic viewBox, wooden bed, quilt, window, snow globe
-│   │   ├── Controls.tsx         # Floating frosted glass transport controls (play, seek, mute, replay)
-│   │   ├── Entrance.tsx         # Audio file selector and entry curtain
-│   │   ├── LyricsDisplay.tsx    # Uppercase karaoke captions with word-level highlight and bottom pill styling
-│   │   ├── Transcript.tsx       # Accessibility transcript with 43 cue definitions
-│   │   └── Topbar.tsx           # Minimal branding header and audio status
+│   │   ├── CinematicStage.tsx      # Dynamic responsive viewBox camera, 3-bay window, real mirror, 3D diagonal bed, dream portal, snow globe
+│   │   ├── Controls.tsx            # Single centered OMJ entrance & discreet Pause/Replay/Transcript/Close controls
+│   │   ├── LyricsDisplay.tsx       # Local Caveat brush-script uppercase captions (~25% backdrop, scene tone, C toggle)
+│   │   └── TimingEditor.tsx        # Dev timing calibration workspace & accessible 43-line transcript + Open-Meteo attribution
+│   ├── environment/
+│   │   ├── liveContext.ts          # Client /api/scene-context fetcher & Intl timezone local-hour fallback
+│   │   └── weatherState.ts         # Authoritative environment state (sun/moon & rain/snow mutual exclusion)
 │   ├── timeline/
-│   │   ├── scenes.ts            # Poses, character coordinates, arm targets, and environment states per scene
-│   │   └── score.ts             # 43 timed lyric cues, actions, and validation logic
-│   └── styles.css               # Design system, glassmorphism, responsive media queries, safe areas
-├── tests/
-│   ├── film.unit.test.ts        # Vitest suite for score validation, IK positioning, lap-rest math
-│   └── player.spec.ts           # Playwright end-to-end tests for desktop and mobile viewports
-└── scripts/
-    └── capture_critique_scenes.js # Automated Playwright multi-scene screenshot capture script
+│   │   ├── scenes.ts               # Horizontal rightward camX journey (480 -> 1280), 43 cue poses, lap-rest & handover geometry
+│   │   └── score.ts                # 43 canonical lyrics (verification: "draft") & shot builder
+│   ├── App.tsx                     # Root state, C shortcut toggle, single OMJ branding, live opening context
+│   ├── main.tsx                    # Local @fontsource/caveat font imports
+│   └── styles.css                  # Full-viewport 100dvh overflow-hidden layout, minimal cinema UI
+├── scripts/
+│   └── capture_all_scenes.mjs      # Automated desktop & mobile screenshot capture across all 43 cues
+└── tests/
+    ├── film.unit.test.ts           # 24 Vitest unit tests (score, rightward camX, lap geometry, weather exclusion, API handler)
+    └── player.spec.ts              # 8 Playwright E2E specs × 5 viewports = 40 browser tests
 ```
 
 ---
 
-## 3. Current Verification Status
+## 2. Key Implemented Systems
 
-- **Typecheck:** `npm run typecheck` → 0 errors
-- **Unit Tests:** `npm run test` (Vitest) → 12/12 passed
-- **Production Build:** `npm run build` (Vite) → clean build (`dist/index.html`, `dist/assets/`)
-- **End-to-End Suite:** `npx playwright test --project=desktop` → 6/6 passed
-- **Visual QA:** Multi-scene screenshots verified for desktop (1440×900) and mobile (393×852)
+1. **Full-Bleed Horizontal World Camera (`CinematicStage.tsx`, `scenes.ts`)**:
+   - Dynamic responsive SVG `viewBox` synced pixel-for-pixel with `ParticleEngine` Canvas affine transform (`0` letterboxing, `0` browser scrolling).
+   - Monotonic rightward world travel (`camX: 480 → 1280`) from the left nightstand & window corner past the memory gallery, dressing-table mirror, and onto the diagonal 3D wooden bed.
+2. **Live Opening Context (`api/scene-context.ts`, `liveContext.ts`, `weatherState.ts`)**:
+   - Reads `x-vercel-ip-latitude`, `x-vercel-ip-longitude`, `x-vercel-ip-timezone` server-side; queries Open-Meteo `current=` variables without exposing city/coordinates/IP or requesting GPS.
+   - Falls back cleanly to `Intl.DateTimeFormat().resolvedOptions().timeZone` local time-of-day lighting with neutral sky when headers/API are unavailable (never fabricates weather).
+   - Once playback begins, `FilmEngine` authored song timeline takes full control.
+3. **Authoritative Weather & Strict Window Clipping (`weatherState.ts`, `ParticleEngine.ts`)**:
+   - Enforces strict mutual exclusion between Sun & Moon (with transition dead-zone) and between Rain & Snow; suppresses stars in bright daytime.
+   - Clips all exterior sky, clouds, stars, rain, glass rain droplets, snow, frost, and diagonal shooting-star streaks strictly inside the 3 window panes.
+4. **Spatial Bedroom, Diagonal 3D Bed & Functional Mirror (`CinematicStage.tsx`)**:
+   - Lived-in bedroom with wallpaper, wainscoting, perspective wooden floor, oval rug, nightstand lamp, framed teddy photos above the bed, persistent 3-bay window, and diagonal 3D wooden bed with thick mattress & shared quilted `razai`.
+   - Functional arched dressing-table mirror beside the bed rendering real-time clipped mirrored `<BearRig>` reflections matching pose, head angle, and limbs.
+5. **Procedural 3D-Shaded Earless Rigs Mochi & Yume (`BearRig.tsx`, `BearAnimations.ts`)**:
+   - 100% earless smooth dome heads with bare necks, zero dashed stitch seams, zero wrinkles/dots, seamless capsule limbs, chiral left/right paws (thumbs always inward), 360° yaw rotation with tail puff & rear bow visibility, kneeling ring box (`Cues 17–18`), hand-to-hand gift/flower handover (`Cue 19`), restrained cigarette (`Cue 21`), inward-facing phone (`Cue 27`), scalloped fluffy thought-cloud dream portal (`Cues 28–29`), Mochi-on-Yume lap-rest (`Cue 31`), and wooden footstools for window gazing (`Cue 42`).
+6. **360° Orbit, YouTube Gestures, Pin-Up Popover & Kinetic Lyrics (`CinematicStage.tsx`, `Controls.tsx`, `LyricsDisplay.tsx`, `App.tsx`, `styles.css`)**:
+   - 360° drag/swipe orbit with spring-return and `Reset 360° View`; double-tap/click left/right & `ArrowLeft`/`ArrowRight` `-5s`/`+5s` seek; press-and-hold `2x >>` speed; compact top-left pin-up popover with speed presets (`0.5x`–`2x`); DUUR-inspired multi-zone kinetic typography with safe-box avoidance and `C` toggle shortcut; single `OMJ` mark.
 
 ---
 
-## 4. Key Highlights of Stage 4 Fixes
+## 3. Verification Summary
 
-1. **Responsive ViewBox (No Vertical Cropping):** Replaced `preserveAspectRatio="xMidYMid slice"` with dynamic SVG viewBox expansion. Widescreen displays horizontally extend scenery without cutting off characters or the wooden bed at the bottom.
-2. **Anatomical Lap-Rest:** Corrected rotation and translation geometry (`a.x = b.x - 22 - 150 * a.scale`, `a.y = b.y - 12`) so Teddy A's head rests squarely on B's lap with a comforting arm caress.
-3. **True Back-Facing Characters:** Implemented seamless back view where front belly patch fades out, back spine seams become visible, and paws rest naturally at sides.
-4. **Natural Arm Contacts:** Added explicit IK paw targets for kissing (arms reaching together) and embracing (full wrap-around hug).
-5. **Architectural Wooden Bed:** Turned posts, carved headboard, quilted mattress, and dual pillows anchor the bedtime scenes.
-6. **Ornate Snow Globe Climax:** Dynamic pull-back camera reveals the miniature imaginary universe enclosed within an ornate glass snow globe with wooden mahogany tier and brass plaque.
-7. **Uppercase Bottom Karaoke Captions:** Captions anchor at bottom center safe area with golden glow highlight and full uppercase typography.
-8. **Discreet Floating Controls:** Player pill repositioned to avoid intercepting topbar clicks.
-
----
-
-## 5. Next Recommended Steps (Optional Polish)
-
-- **Actual Audio Asset Verification:** When official mastered audio is provided, calibrate cue millisecond timestamps for precise lip/karaoke matching.
-- **Physical Device Touch Testing:** Verify touch drag scrubbing on physical mobile devices.
-- **Push & Deployment:** To deploy updates to production (`https://omj-iota.vercel.app`), obtain user confirmation and run `git push origin main`.
+- `npm run typecheck`: **0 errors**
+- `npm run test` (Vitest): **24/24 passed**
+- `npm run build` (Vite): **clean production bundle** (`dist/`)
+- `npx playwright test`: **45/45 passed** across `1440×900`, `1920×1080`, `390×844`, `393×852`, and `430×932` (Chromium)
+- Visual QA screenshots captured and inspected across all 43 cues + entrance + snow globe outro (`scripts/capture_all_scenes.mjs`).

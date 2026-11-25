@@ -1,29 +1,32 @@
 import {
+  forwardRef,
   memo,
+  useEffect,
+  useImperativeHandle,
   useLayoutEffect,
   useRef,
   useState,
-  useEffect,
+  type PointerEvent as ReactPointerEvent,
 } from "react";
 import { AudioController } from "../audio/AudioController";
 import { FilmEngine } from "../animation/FilmEngine";
-import { createParticleEngine } from "../animation/ParticleEngine";
+import { createParticleEngine, type ViewBox } from "../animation/ParticleEngine";
 import { BearRig } from "../characters/BearRig";
 import { createBearPainter } from "../characters/BearAnimations";
 import {
+  resolveAuthoritativeEnv,
+  type LiveOpeningContext,
+} from "../environment/weatherState";
+import {
   attachHand,
+  clamp,
+  MIRROR_CENTER_X,
   targetFor,
   worldPoint,
   type Frame,
 } from "../timeline/scenes";
-import {
-  validateScore,
-  type Score,
-} from "../timeline/score";
-import {
-  LyricsDisplay,
-  type LyricsHandle,
-} from "./LyricsDisplay";
+import { validateScore, type Score } from "../timeline/score";
+import { LyricsDisplay, type LyricsHandle, type SafeBox } from "./LyricsDisplay";
 
 function useReducedMotion() {
   const [reduced, setReduced] = useState(
@@ -33,47 +36,16 @@ function useReducedMotion() {
   useEffect(() => {
     const media = window.matchMedia("(prefers-reduced-motion: reduce)");
     const update = () => setReduced(media.matches);
-
     media.addEventListener("change", update);
     update();
-
     return () => media.removeEventListener("change", update);
   }, []);
 
   return reduced;
 }
 
-function Present({
-  index,
-  color,
-}: {
-  index: number;
-  color: string;
-}) {
-  return (
-    <g data-present={index}>
-      <rect
-        x="-27" y="-46" width="54" height="46" rx="6"
-        fill={color} stroke="#80677e" strokeWidth="1.5"
-      />
-      <rect
-        x="-31" y="-56" width="62" height="13" rx="4"
-        fill={color} stroke="#80677e" strokeWidth="1.5"
-      />
-      <path
-        d="M0-55V0M-26-24H26"
-        stroke="#f5e7cf"
-        strokeWidth="5"
-        opacity=".9"
-      />
-      <path
-        d="M0-56C-29-78-30-48 0-56C29-78 30-48 0-56"
-        fill="none"
-        stroke="#f5e7cf"
-        strokeWidth="4"
-      />
-    </g>
-  );
+export interface StageHandle {
+  resetOrbit(): void;
 }
 
 interface StageProps {
@@ -81,254 +53,511 @@ interface StageProps {
   score: Score;
   duration: number;
   active: boolean;
+  captionsVisible: boolean;
+  openingContext: LiveOpeningContext | null;
+  playbackRate: number;
 }
 
-export const CinematicStage = memo(function CinematicStage({
+export const CinematicStage = memo(forwardRef<StageHandle, StageProps>(function CinematicStage({
   controller,
   score,
   duration,
   active,
-}: StageProps) {
+  captionsVisible,
+  openingContext,
+  playbackRate,
+}, ref) {
   const root = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
+  const svgBack = useRef<SVGSVGElement>(null);
+  const svgFront = useRef<SVGSVGElement>(null);
   const lyrics = useRef<LyricsHandle>(null);
   const reduced = useReducedMotion();
 
+  const stageSizeRef = useRef({ width: 1440, height: 900 });
+  const openingRef = useRef<LiveOpeningContext | null>(openingContext);
+  openingRef.current = openingContext;
+
+  const captionsVisibleRef = useRef(captionsVisible);
+  captionsVisibleRef.current = captionsVisible;
+
+  const playbackRateRef = useRef(playbackRate);
+  playbackRateRef.current = playbackRate;
+
+  const orbitRef = useRef({
+    yaw: 0,
+    pitch: 0,
+    dragging: false,
+    pointerId: -1,
+    startX: 0,
+    startY: 0,
+    startYaw: 0,
+    startPitch: 0,
+    moved: false,
+  });
+
+  const gestureRef = useRef({
+    holdTimer: 0 as number,
+    fastForward: false,
+    lastTapTime: 0,
+    lastTapSide: "" as "" | "left" | "right",
+    lastTapX: 0,
+    lastTapY: 0,
+  });
+
+  const [orbitHud, setOrbitHud] = useState<number | null>(null);
+  const [seekBadge, setSeekBadge] = useState<{ side: "left" | "right"; label: string; key: number } | null>(null);
+  const [fastBadge, setFastBadge] = useState(false);
+
+  useImperativeHandle(ref, () => ({
+    resetOrbit() {
+      orbitRef.current.yaw = 0;
+      orbitRef.current.pitch = 0;
+      orbitRef.current.dragging = false;
+      setOrbitHud(null);
+      controller.renderNow();
+    },
+  }), [controller]);
+
   useLayoutEffect(() => {
     const element = root.current!;
+    const backSvg = svgBack.current!;
+    const frontSvg = svgFront.current!;
     const particles = createParticleEngine(canvas.current!);
 
     const query = (name: string) => {
-      const node = element.querySelector<SVGElement>(
-        `[data-node="${name}"]`,
-      );
-
+      const node = element.querySelector<SVGElement>(`[data-node="${name}"]`);
       if (!node) throw new Error(`Missing stage node: ${name}`);
       return node;
     };
 
     const nodes = Object.fromEntries(
       [
-        "room", "hole", "window", "sun", "moon", "cold",
-        "cloudA", "cloudB", "camera", "bed", "message",
-        "gifts", "flowers", "phone", "thought", "quilt",
-        "lantern", "letter", "title", "curtainA", "curtainB",
-        "shadowA", "shadowB", "snowglobe",
+        "skyTopStop", "skyMidStop", "skyBottomStop",
+        "room", "window", "sun", "moon", "cold",
+        "cloudA", "cloudB", "cloudC", "bed", "message",
+        "gifts", "flowers", "ringbox", "cigarette", "phone",
+        "thought", "dreamScene", "quilt", "stoolA", "stoolB",
+        "lantern", "letter", "photoGlow", "lampGlow",
+        "curtainA", "curtainB", "curtainC",
+        "shadowA", "shadowB", "snowglobe", "mirrorGroup",
+        "mirrorWrapA", "mirrorWrapB", "stageBears",
       ].map((name) => [name, query(name)]),
     );
 
     const character = (id: string) => {
-      const node = element.querySelector<SVGGElement>(
-        `[data-bear="${id}"]`,
-      );
-
+      const node = element.querySelector<SVGGElement>(`[data-bear="${id}"]`);
       if (!node) throw new Error(`Missing character: ${id}`);
       return createBearPainter(node);
     };
 
     const paintA = character("a");
     const paintB = character("b");
+    const paintMirrorA = character("mirror-a");
+    const paintMirrorB = character("mirror-b");
     const paintDreamA = character("dream-a");
     const paintDreamB = character("dream-b");
 
-    const presents = Array.from(
-      element.querySelectorAll<SVGGElement>("[data-present]"),
-    );
-
+    const bearAEl = element.querySelector<SVGGElement>('[data-bear="a"]')!;
+    const bearBEl = element.querySelector<SVGGElement>('[data-bear="b"]')!;
     const surface = element.querySelector<HTMLElement>(".film-surface")!;
 
     const valid = duration > 0 && validateScore(score, duration).length === 0;
     const film = valid ? new FilmEngine(score, duration) : null;
 
-    const opacity = (name: string, value: number) =>
-      nodes[name]!.setAttribute("opacity", String(value));
+    const setOpacity = (name: string, value: number) =>
+      nodes[name]!.setAttribute("opacity", String(clamp(value)));
 
-    function paint(frame: Frame, time: number) {
+    function computeViewBox(frame: Frame): ViewBox {
+      const { width, height } = stageSizeRef.current;
+      const aspect = Math.max(0.25, width / Math.max(1, height));
+      const SAFE_W = 760;
+      const SAFE_H = 1040;
+
+      let baseW: number;
+      let baseH: number;
+      if (aspect >= SAFE_W / SAFE_H) {
+        baseH = SAFE_H;
+        baseW = SAFE_H * aspect;
+      } else {
+        baseW = SAFE_W;
+        baseH = SAFE_W / aspect;
+      }
+
+      const zoom = Math.max(0.48, frame.env.zoom || 1);
+      const vbW = baseW / zoom;
+      const vbH = baseH / zoom;
+      const yawRad = (orbitRef.current.yaw * Math.PI) / 180;
+      const orbitOffsetX = Math.sin(yawRad) * 185;
+      const orbitOffsetY = orbitRef.current.pitch * 4.5;
+      const focusX = (frame.env.camX ?? 480) + orbitOffsetX;
+      const focusY = 515 + (frame.env.camY ?? 0) + orbitOffsetY;
+
+      return {
+        x: focusX - vbW / 2,
+        y: focusY - vbH / 2,
+        width: vbW,
+        height: vbH,
+      };
+    }
+
+    function paint(rawFrame: Frame, time: number, isIntroPreview: boolean): SafeBox[] {
+      const frame = rawFrame;
       const env = frame.env;
+      const auth = resolveAuthoritativeEnv(env, {
+        opening: openingRef.current,
+        isIntroPreview,
+      });
+
+      // Smooth spring-return on cameraYaw & cameraPitch when not actively dragging
+      if (!orbitRef.current.dragging && (Math.abs(orbitRef.current.yaw) > 0.15 || Math.abs(orbitRef.current.pitch) > 0.1)) {
+        orbitRef.current.yaw *= 0.88;
+        orbitRef.current.pitch *= 0.88;
+        if (Math.abs(orbitRef.current.yaw) <= 0.15) orbitRef.current.yaw = 0;
+        if (Math.abs(orbitRef.current.pitch) <= 0.1) orbitRef.current.pitch = 0;
+      }
+
+      const yaw = orbitRef.current.yaw;
+      const yawRad = (yaw * Math.PI) / 180;
+
+      const vb = computeViewBox(frame);
+      const vbStr = `${vb.x.toFixed(2)} ${vb.y.toFixed(2)} ${vb.width.toFixed(2)} ${vb.height.toFixed(2)}`;
+      backSvg.setAttribute("viewBox", vbStr);
+      frontSvg.setAttribute("viewBox", vbStr);
 
       element.dataset.action = frame.action;
       element.dataset.reduced = String(reduced);
-      surface.style.opacity = String(env.alpha);
+      surface.style.opacity = String(clamp(env.alpha));
 
-      opacity("room", env.room);
-      opacity("window", env.window);
+      // Coherent Sky Gradient Colors
+      nodes.skyTopStop!.setAttribute("stop-color", auth.skyTop);
+      nodes.skyMidStop!.setAttribute("stop-color", auth.skyMid);
+      nodes.skyBottomStop!.setAttribute("stop-color", auth.skyBottom);
 
-      // Strict mutual exclusion: never render bright sunbeams simultaneously with active rain or night moon
-      const isRain = env.rain > 0.15;
-      const effectiveSun = isRain ? 0 : env.sun;
-      const effectiveMoon = isRain ? 0.22 : (effectiveSun > 0.4 ? 0 : 1 - effectiveSun * 0.75);
+      // Room and Window ALWAYS remain visible during bedroom story
+      setOpacity("room", Math.max(0.92, env.room));
+      setOpacity("window", 1);
+      setOpacity("bed", 1);
 
-      opacity("sun", effectiveSun);
-      opacity("moon", effectiveMoon);
-      opacity("cold", env.cold * 0.16);
-      opacity("bed", env.bench);
-      opacity("message", env.message);
-      opacity("gifts", env.gifts);
-      opacity("flowers", env.flowers);
-      opacity("phone", env.phone);
-      opacity("thought", env.thought);
-      opacity("quilt", env.quilt);
-      opacity("lantern", env.lantern);
-      opacity("letter", env.letter);
-      opacity("title", env.title);
+      // Strict Sun vs Moon mutual exclusion + Clouds gated by condition
+      setOpacity("sun", auth.sun);
+      setOpacity("moon", auth.moon);
+      setOpacity("cloudA", auth.clouds * 0.55);
+      setOpacity("cloudB", auth.clouds * 0.45);
+      setOpacity("cloudC", auth.clouds * 0.4);
+      setOpacity("cold", auth.coldTint * 0.16);
+      setOpacity("lampGlow", auth.lampGlow);
 
-      const globeReveal =
-        frame.action === "tail"
-          ? Math.min(1, Math.max(0, (0.95 - env.zoom) / 0.22))
-          : 0;
-      opacity("snowglobe", globeReveal);
-
-      const cx = env.camX ?? 0;
-      const cy = env.camY ?? 0;
-
-      nodes.moon!.setAttribute(
-        "transform",
-        `translate(${-cx * 0.1} ${-cy * 0.08})`,
-      );
-      nodes.sun!.setAttribute(
-        "transform",
-        `translate(${-cx * 0.1} ${-cy * 0.08})`,
-      );
-
-      nodes.room!.setAttribute(
-        "transform",
-        `translate(${-cx * 0.45} ${-cy * 0.4})`,
-      );
-      nodes.window!.setAttribute(
-        "transform",
-        `translate(${-cx * 0.6} ${env.windowY - cy * 0.55})`,
-      );
-      nodes.hole!.setAttribute("x", String(185 - cx * 0.6));
-      nodes.hole!.setAttribute("y", String(145 + env.windowY - cy * 0.55));
-
+      // Subtle restrained curtain movement
+      const curtainSway = reduced ? 0 : Math.sin(time * 0.7) * 2.5;
       nodes.curtainA!.setAttribute(
         "transform",
-        `translate(${-env.curtains * 22} 0)`,
+        `translate(${-env.curtains * 14 + curtainSway} 0)`,
       );
       nodes.curtainB!.setAttribute(
         "transform",
-        `translate(${env.curtains * 22} 0)`,
+        `translate(${env.curtains * 8 - curtainSway * 0.5} 0)`,
       );
-
-      const drift = reduced ? 0 : Math.sin(time * 0.035) * 25;
-
-      nodes.cloudA!.setAttribute(
+      nodes.curtainC!.setAttribute(
         "transform",
-        `translate(${drift - cx * 0.22} ${-cy * 0.18})`,
-      );
-      nodes.cloudB!.setAttribute(
-        "transform",
-        `translate(${-drift * 0.6 - cx * 0.22} ${-cy * 0.18})`,
+        `translate(${env.curtains * 14 - curtainSway} 0)`,
       );
 
-      nodes.camera!.setAttribute(
+      // Gentle outdoor cloud drift (only visible when auth.clouds > 0)
+      const drift = reduced ? 0 : Math.sin(time * 0.032) * 22;
+      nodes.cloudA!.setAttribute("transform", `translate(${drift} 0)`);
+      nodes.cloudB!.setAttribute("transform", `translate(${-drift * 0.7} 0)`);
+      nodes.cloudC!.setAttribute("transform", `translate(${drift * 0.5} 0)`);
+
+      // Subtle parallax offset on distant exterior sky & room depth with 360 orbit
+      const skyParallax = (vb.x - 100) * 0.08 - Math.sin(yawRad) * 95;
+      nodes.sun!.setAttribute("transform", `translate(${skyParallax} 0)`);
+      nodes.moon!.setAttribute("transform", `translate(${skyParallax} 0)`);
+      nodes.room!.setAttribute(
         "transform",
-        `translate(${360 - cx} ${870 - cy}) scale(${env.zoom}) translate(-360 -870)`,
+        `translate(${(-Math.sin(yawRad) * 42).toFixed(1)} ${(orbitRef.current.pitch * 1.4).toFixed(1)})`,
       );
 
-      const phone = worldPoint(frame.b, 0, -65);
-      const letter = worldPoint(frame.a, frame.a.rightX, frame.a.rightY);
-      const lantern = worldPoint(frame.a, frame.a.rightX, frame.a.rightY);
+      // ── Props & Hand Contacts ─────────────────────────────────────────────
+      setOpacity("message", env.message);
+      setOpacity("photoGlow", env.photoGlow * 0.65);
+      setOpacity("quilt", env.quilt);
+      setOpacity("lantern", env.lantern);
+      setOpacity("letter", env.letter);
 
-      nodes.phone!.setAttribute(
+      // Wooden Footstools for Window Gazing (Cue 42)
+      const stoolVis = clamp(env.stools);
+      setOpacity("stoolA", stoolVis);
+      setOpacity("stoolB", stoolVis);
+      nodes.stoolA!.setAttribute("transform", `translate(${frame.a.x} 810)`);
+      nodes.stoolB!.setAttribute("transform", `translate(${frame.b.x} 810)`);
+
+      // Notification bubble positioned calmly next to Mochi ONLY in Cue 2
+      nodes.message!.setAttribute(
         "transform",
-        `translate(${phone.x} ${phone.y}) rotate(-7)`,
+        `translate(${frame.a.x + 115} ${frame.a.y - 235})`,
       );
+
+      // Letter held gently in Mochi's right paw in Cue 1
+      const letterHand = worldPoint(frame.a, frame.a.rightX, frame.a.rightY);
       nodes.letter!.setAttribute(
         "transform",
-        `translate(${letter.x} ${letter.y}) rotate(-9)`,
+        `translate(${letterHand.x} ${letterHand.y + 4}) rotate(-8)`,
       );
+
+      // Warm lantern held gently by Mochi in Cue 25/26
       nodes.lantern!.setAttribute(
         "transform",
-        `translate(${lantern.x} ${lantern.y + 14})`,
+        `translate(${letterHand.x + 6} ${letterHand.y + 18})`,
       );
 
-      presents.forEach((present, index) => {
-        const reveal = Math.max(
-          0,
-          Math.min(1, env.gifts * 3 - index * 0.25),
-        );
+      // Phone in Yume's paws — BACK of phone faces viewer, screen faces Yume!
+      const phonePos = worldPoint(frame.b, -6, -68);
+      nodes.phone!.setAttribute(
+        "transform",
+        `translate(${phonePos.x} ${phonePos.y}) rotate(-10)`,
+      );
+      setOpacity("phone", env.phone);
 
-        present.setAttribute(
+      // Open Ring Box held directly between Mochi's paws (Cues 17–18)
+      if (env.ringbox > 0.01) {
+        const ringHand = worldPoint(
+          frame.a,
+          (frame.a.leftX + frame.a.rightX) / 2 + 8,
+          frame.a.rightY - 6,
+        );
+        nodes.ringbox!.setAttribute(
           "transform",
-          `translate(${156 + index * 101} ${962 - reveal * 4}) scale(${0.85 + reveal * 0.15})`,
+          `translate(${ringHand.x} ${ringHand.y})`,
         );
-        present.setAttribute("opacity", String(reveal));
-      });
+      }
+      setOpacity("ringbox", env.ringbox);
 
+      // Direct Hand-to-Hand Gift & Flower Handover (Cues 19–20)
+      const handover = clamp(env.giftTransfer);
+      const giftStart = worldPoint(frame.a, frame.a.rightX, frame.a.rightY);
+      const giftEnd = worldPoint(frame.b, frame.b.leftX, frame.b.leftY);
+      const giftX = giftStart.x + (giftEnd.x - giftStart.x) * handover;
+      const giftY = giftStart.y + (giftEnd.y - giftStart.y) * handover;
+
+      nodes.gifts!.setAttribute(
+        "transform",
+        `translate(${giftX} ${giftY - 6})`,
+      );
+      setOpacity("gifts", env.gifts);
+
+      nodes.flowers!.setAttribute(
+        "transform",
+        `translate(${giftX + (handover > 0.5 ? 24 : -14)} ${giftY - 10}) rotate(${handover > 0.5 ? -8 : 10})`,
+      );
+      setOpacity("flowers", env.flowers);
+
+      // Brief Cigarette detail cleanly gripped in Mochi's right paw (Cue 21)
+      if (env.cigarette > 0.01) {
+        const cigHand = worldPoint(frame.a, frame.a.rightX, frame.a.rightY);
+        nodes.cigarette!.setAttribute(
+          "transform",
+          `translate(${cigHand.x + 8} ${cigHand.y - 6}) rotate(-18)`,
+        );
+      }
+      setOpacity("cigarette", env.cigarette);
+
+      // ── Contact Shadows & Dynamic IK Contacts ─────────────────────────────
       for (const [name, pose] of [
         ["shadowA", frame.a],
         ["shadowB", frame.b],
       ] as const) {
-        const tilt = Math.sin(Math.abs(pose.rotation) * Math.PI / 180);
-
+        const isOnBed = pose.y > 885 || Math.abs(pose.rotation) > 20;
+        const shadowY = isOnBed ? pose.y + 38 : pose.y + 66;
+        const rx = Math.abs(pose.rotation) > 45 ? 95 : 54;
         nodes[name]!.setAttribute(
           "transform",
-          `translate(${pose.x + tilt * 55} ${pose.y + 78 - pose.sit * 35 - tilt * 23})`,
+          `translate(${pose.x} ${shadowY})`,
         );
-        nodes[name]!.setAttribute("opacity", String(pose.alpha * 0.15));
+        nodes[name]!.setAttribute("rx", String(rx));
+        nodes[name]!.setAttribute("opacity", String(pose.alpha * 0.24));
       }
 
-      // Dynamic real two-bone IK solver contact resolution
       if (frame.action === "lap") {
+        // Yume's left paw rests tenderly on Mochi's head resting on her lap
         const headWorld = worldPoint(frame.a, 0, -150);
-        const pet = reduced ? 0 : Math.sin(time * 3) * 6;
-        attachHand(frame.b, "left", headWorld.x + pet, headWorld.y - 18, 1);
+        const pet = reduced ? 0 : Math.sin(time * 2.8) * 5;
+        attachHand(frame.b, "left", headWorld.x + pet, headWorld.y - 16, 1);
       } else if (frame.action === "kiss") {
-        attachHand(frame.a, "right", frame.b.x - 14, frame.b.y - 58, 1);
-        attachHand(frame.b, "left", frame.a.x + 14, frame.a.y - 58, 1);
-      } else if (frame.action === "embrace") {
-        attachHand(frame.a, "left", frame.b.x - 18, frame.b.y - 34, 1);
-        attachHand(frame.a, "right", frame.b.x + 18, frame.b.y - 34, 1);
-        attachHand(frame.b, "left", frame.a.x - 18, frame.a.y - 34, 1);
-        attachHand(frame.b, "right", frame.a.x + 18, frame.a.y - 34, 1);
+        attachHand(frame.a, "right", frame.b.x - 12, frame.b.y - 54, 1);
+        attachHand(frame.b, "left", frame.a.x + 12, frame.a.y - 54, 1);
+      } else if (frame.action === "embrace" || frame.action === "chorus2-7") {
+        attachHand(frame.a, "left", frame.b.x - 16, frame.b.y - 44, 1);
+        attachHand(frame.a, "right", frame.b.x + 16, frame.b.y - 44, 1);
+        attachHand(frame.b, "left", frame.a.x - 16, frame.a.y - 44, 1);
+        attachHand(frame.b, "right", frame.a.x + 16, frame.a.y - 44, 1);
       } else if (frame.action === "gifts") {
-        attachHand(frame.a, "right", 360, 850, 0.85);
-        attachHand(frame.b, "left", 360, 850, 0.85);
+        attachHand(frame.a, "right", giftX, giftY, 0.9);
+        attachHand(frame.b, "left", giftX, giftY, 0.9);
       }
 
-      paintA(frame.a, time, reduced, env.sun);
-      paintB(frame.b, time, reduced, env.sun);
+      // Ensure Mochi rests visibly ON TOP OF Yume's lap in Cue 31 ("lap")
+      if (frame.action === "lap") {
+        if (nodes.stageBears!.lastElementChild !== bearAEl) {
+          nodes.stageBears!.appendChild(bearBEl);
+          nodes.stageBears!.appendChild(bearAEl);
+        }
+      } else if (nodes.stageBears!.lastElementChild !== bearBEl) {
+        nodes.stageBears!.appendChild(bearAEl);
+        nodes.stageBears!.appendChild(bearBEl);
+      }
 
+      paintA(frame.a, time, reduced, auth.warmth, yaw);
+      paintB(frame.b, time, reduced, auth.warmth, yaw);
+
+      // ── Functional Dressing Table Mirror Reflection ───────────────────────
+      // Renders exact real-time mirrored reflections inside #mirror-glass-clip
+      for (const [pose, paintFn, wrap] of [
+        [frame.a, paintMirrorA, nodes.mirrorWrapA!],
+        [frame.b, paintMirrorB, nodes.mirrorWrapB!],
+      ] as const) {
+        const dist = Math.abs(pose.x - MIRROR_CENTER_X);
+        const proximity = clamp(1 - Math.max(0, dist - 75) / 135);
+        const vis = proximity * pose.alpha * clamp(1 - env.dreamEnter * 0.4);
+
+        if (vis > 0.01) {
+          const mirrorPose = {
+            ...pose,
+            // If standing facing away from camera into the mirror, mirror reflects their front!
+            back: pose.back > 0.5 ? 0 : pose.back,
+            alpha: vis * 0.74,
+          };
+          paintFn(mirrorPose, time, reduced, auth.warmth, -yaw);
+          const rx = MIRROR_CENTER_X + (pose.x - MIRROR_CENTER_X) * 0.52;
+          const ry = pose.y - 16;
+          wrap.setAttribute(
+            "transform",
+            `translate(${rx} ${ry}) scale(-0.82 0.82) translate(${-pose.x} ${-pose.y})`,
+          );
+          wrap.setAttribute("opacity", "1");
+          wrap.style.visibility = "visible";
+        } else {
+          wrap.setAttribute("opacity", "0");
+          wrap.style.visibility = "hidden";
+        }
+      }
+
+      // ── Scalloped Fluffy Thought-Cloud Dream Portal (Cues 28–29) ───────────
+      // Small floating thought bubbles rise from near Mochi's head into a scalloped fluffy cloud
+      // above the characters, keeping both Mochi & Yume visible in the bedroom below.
+      const dreamProgress = clamp(env.dreamEnter);
+      const thoughtOriginX = frame.a.x + 28;
+      const thoughtOriginY = frame.a.y - 230;
+      const cloudTargetX = (frame.a.x + frame.b.x) / 2 - 20;
+      const cloudTargetY = vb.y + vb.height * 0.31;
+      const portalCenterX =
+        thoughtOriginX + (cloudTargetX - thoughtOriginX) * Math.min(1, dreamProgress * 1.4);
+      const portalCenterY =
+        thoughtOriginY + (cloudTargetY - thoughtOriginY) * Math.min(1, dreamProgress * 1.4);
+
+      nodes.thought!.setAttribute(
+        "transform",
+        `translate(${thoughtOriginX} ${thoughtOriginY}) scale(${0.65 + dreamProgress * 0.45})`,
+      );
+      setOpacity("thought", env.thought);
+
+      const dreamCloudOpacity = clamp((dreamProgress - 0.12) / 0.35);
+      const cloudScale = 0.42 + dreamProgress * 0.68;
+      nodes.dreamScene!.setAttribute(
+        "transform",
+        `translate(${portalCenterX} ${portalCenterY}) scale(${cloudScale})`,
+      );
+      setOpacity("dreamScene", dreamCloudOpacity);
+
+      // Dream characters sharing an unmistakable affectionate kiss
       const dream = targetFor("kiss");
+      dream.a.x = -50;
+      dream.a.y = 95;
+      dream.a.scale = 0.92;
+      dream.a.rotation = 5;
+      dream.a.head = 9;
+      dream.a.leftX = -52;
+      dream.a.leftY = -20;
+      dream.a.rightX = 60;
+      dream.a.rightY = -48;
+      dream.a.closed = 0.88;
+      dream.a.smile = 0.95;
 
-      dream.a.x = 323;
-      dream.a.y = 514;
-      dream.a.scale = 0.63;
-      dream.a.rotation = 7;
-      dream.a.rightX = 103;
-      dream.a.rightY = -12;
-      dream.a.closed = 0.75;
+      dream.b.x = 50;
+      dream.b.y = 95;
+      dream.b.scale = 0.92;
+      dream.b.rotation = -5;
+      dream.b.head = -9;
+      dream.b.leftX = -60;
+      dream.b.leftY = -48;
+      dream.b.rightX = 52;
+      dream.b.rightY = -20;
+      dream.b.closed = 0.88;
+      dream.b.smile = 0.95;
 
-      dream.b.x = 400;
-      dream.b.y = 514;
-      dream.b.scale = 0.63;
-      dream.b.rotation = -3;
-      dream.b.leftX = -77;
-      dream.b.leftY = -42;
-      dream.b.closed = 0.6;
+      paintDreamA(dream.a, time, reduced, 0.9);
+      paintDreamB(dream.b, time, reduced, 0.9);
 
-      paintDreamA(dream.a, time, reduced, 0.8);
-      paintDreamB(dream.b, time, reduced, 0.8);
+      // ── Ornate Snow Globe Climax (Outro `tail`) ──────────────────────────
+      const globeReveal =
+        frame.action === "tail"
+          ? clamp((0.94 - env.zoom) / 0.24)
+          : 0;
+      setOpacity("snowglobe", globeReveal);
+      nodes.snowglobe!.style.visibility = globeReveal > 0.01 ? "visible" : "hidden";
+      const globeX = vb.x + vb.width / 2;
+      const globeY = vb.y + vb.height * 0.5;
+      const globeS = Math.min(vb.width / 820, vb.height / 940);
+      nodes.snowglobe!.setAttribute(
+        "transform",
+        `translate(${globeX} ${globeY}) scale(${globeS})`,
+      );
 
-      particles.draw(frame, time, reduced);
+      // Update Lyric Caption Tone from Authoritative Weather State
+      lyrics.current?.setTone(auth.captionTone);
+      lyrics.current?.setVisible(captionsVisibleRef.current);
+
+      // Draw camera-locked Canvas weather & particles
+      particles.draw(frame, time, reduced, vb, auth);
+
+      // Compute normalized screen-space safe boxes for Mochi, Yume, Bed, and Window
+      const toNorm = (wx: number, wy: number, ww: number, wh: number): SafeBox => ({
+        x1: clamp((wx - vb.x) / vb.width, 0, 1),
+        y1: clamp((wy - vb.y) / vb.height, 0, 1),
+        x2: clamp((wx + ww - vb.x) / vb.width, 0, 1),
+        y2: clamp((wy + wh - vb.y) / vb.height, 0, 1),
+      });
+
+      return [
+        toNorm(frame.a.x - 68, frame.a.y - 220, 136, 235),
+        toNorm(frame.b.x - 68, frame.b.y - 220, 136, 235),
+        toNorm(1220, 650, 440, 380), // Bed
+        toNorm(400, 130, 710, 460),  // Window
+      ];
     }
 
-    function resizeCaption() {
-      // Safe action zone 720x1080 preserved via preserveAspectRatio="xMidYMid meet"
-      void element.getBoundingClientRect();
-    }
-
-    const resizeObserver = new ResizeObserver(resizeCaption);
+    const resizeObserver = new ResizeObserver((entries) => {
+      const rect = entries[0]?.contentRect ?? element.getBoundingClientRect();
+      stageSizeRef.current = {
+        width: Math.max(1, rect.width),
+        height: Math.max(1, rect.height),
+      };
+      controller.renderNow();
+    });
     resizeObserver.observe(element);
-    resizeCaption();
+
+    const rect = element.getBoundingClientRect();
+    stageSizeRef.current = {
+      width: Math.max(1, rect.width),
+      height: Math.max(1, rect.height),
+    };
 
     const unsubscribe = controller.addRenderer((time) => {
       if (active && film) {
-        paint(film.sample(time, reduced), time);
-        lyrics.current?.paint(time, score, reduced);
+        const safeZones = paint(film.sample(time, reduced), time, false);
+        lyrics.current?.paint(time, score, reduced, safeZones);
       } else {
-        paint(targetFor("intro"), 0);
+        paint(targetFor("intro"), 0, true);
         lyrics.current?.clear();
       }
     });
@@ -341,105 +570,399 @@ export const CinematicStage = memo(function CinematicStage({
     };
   }, [controller, score, duration, active, reduced]);
 
+  useEffect(() => {
+    lyrics.current?.setVisible(captionsVisible);
+  }, [captionsVisible]);
+
+  useEffect(() => {
+    // Repaint opening screen immediately when live weather/time arrives
+    if (!active) {
+      controller.renderNow();
+    }
+  }, [openingContext, active, controller]);
+
+  function onStagePointerDown(e: ReactPointerEvent<HTMLDivElement>) {
+    if (e.button !== 0 && e.pointerType === "mouse") return;
+    const target = e.target as HTMLElement | null;
+    if (target?.closest("button,label,input,a,[role='dialog']")) return;
+
+    const now = performance.now();
+    orbitRef.current.pointerId = e.pointerId;
+    orbitRef.current.startX = e.clientX;
+    orbitRef.current.startY = e.clientY;
+    orbitRef.current.startYaw = orbitRef.current.yaw;
+    orbitRef.current.startPitch = orbitRef.current.pitch;
+    orbitRef.current.dragging = false;
+    orbitRef.current.moved = false;
+
+    window.clearTimeout(gestureRef.current.holdTimer);
+    if (active) {
+      gestureRef.current.holdTimer = window.setTimeout(() => {
+        if (!orbitRef.current.moved) {
+          gestureRef.current.fastForward = true;
+          controller.setRate(2.0);
+          setFastBadge(true);
+        }
+      }, 220);
+    }
+
+    // Track timestamp for double-tap / double-click detection on up
+    (e.currentTarget as HTMLDivElement).dataset.downTime = String(now);
+  }
+
+  function onStagePointerMove(e: ReactPointerEvent<HTMLDivElement>) {
+    if (orbitRef.current.pointerId !== e.pointerId) return;
+    const dx = e.clientX - orbitRef.current.startX;
+    const dy = e.clientY - orbitRef.current.startY;
+    if (Math.hypot(dx, dy) > 8) {
+      orbitRef.current.moved = true;
+      orbitRef.current.dragging = true;
+      window.clearTimeout(gestureRef.current.holdTimer);
+      orbitRef.current.yaw = orbitRef.current.startYaw + dx * 0.45;
+      orbitRef.current.pitch = clamp(orbitRef.current.startPitch + dy * 0.08, -12, 12);
+      const deg = Math.round(((orbitRef.current.yaw % 360) + 360) % 360);
+      setOrbitHud(deg);
+      controller.renderNow();
+    }
+  }
+
+  function onStagePointerUp(e: ReactPointerEvent<HTMLDivElement>) {
+    if (orbitRef.current.pointerId !== e.pointerId) return;
+    orbitRef.current.pointerId = -1;
+    orbitRef.current.dragging = false;
+    window.clearTimeout(gestureRef.current.holdTimer);
+
+    if (gestureRef.current.fastForward) {
+      gestureRef.current.fastForward = false;
+      controller.setRate(playbackRateRef.current);
+      setFastBadge(false);
+      return;
+    }
+
+    if (orbitRef.current.moved) {
+      setOrbitHud(null);
+      return;
+    }
+
+    if (!active) return;
+
+    // Quick tap/click: check for double-tap / double-click left or right half (-5s / +5s)
+    const rect = e.currentTarget.getBoundingClientRect();
+    const side: "left" | "right" = e.clientX < rect.left + rect.width / 2 ? "left" : "right";
+    const now = performance.now();
+    const g = gestureRef.current;
+
+    if (
+      g.lastTapSide === side &&
+      now - g.lastTapTime < 340 &&
+      Math.hypot(e.clientX - g.lastTapX, e.clientY - g.lastTapY) < 56
+    ) {
+      const delta = side === "left" ? -5 : 5;
+      const cur = controller.getSnapshot().time;
+      controller.seek(cur + delta);
+      setSeekBadge({ side, label: side === "left" ? "-5s" : "+5s", key: now });
+      window.setTimeout(() => {
+        setSeekBadge((prev) => (prev?.key === now ? null : prev));
+      }, 650);
+      g.lastTapTime = 0;
+      g.lastTapSide = "";
+    } else {
+      g.lastTapTime = now;
+      g.lastTapSide = side;
+      g.lastTapX = e.clientX;
+      g.lastTapY = e.clientY;
+    }
+  }
+
   return (
-    <div className="cinematic-stage" ref={root}>
+    <div
+      className="cinematic-stage"
+      ref={root}
+      onPointerDown={onStagePointerDown}
+      onPointerMove={onStagePointerMove}
+      onPointerUp={onStagePointerUp}
+      onPointerCancel={onStagePointerUp}
+    >
       <div className="sky-base" aria-hidden="true" />
 
       <div className="film-surface" aria-hidden="true">
-        <svg className="art art-back" viewBox="0 0 720 1080" preserveAspectRatio="xMidYMid meet">
+        {/* ── BACK LAYER: EXTERIOR SKY + WALLPAPER + PERSPECTIVE FLOOR ───── */}
+        <svg
+          ref={svgBack}
+          className="art art-back"
+          viewBox="0 0 1440 900"
+          preserveAspectRatio="none"
+        >
           <defs>
+            <linearGradient id="sky-grad" x1="0" y1="0" x2="0" y2="1">
+              <stop data-node="skyTopStop" offset="0%" stopColor="#14162c" />
+              <stop data-node="skyMidStop" offset="52%" stopColor="#2a2344" />
+              <stop data-node="skyBottomStop" offset="100%" stopColor="#5b4466" />
+            </linearGradient>
+
             <radialGradient id="moon-halo">
-              <stop stopColor="#f6dfa8" stopOpacity=".22" />
-              <stop offset="1" stopColor="#f6dfa8" stopOpacity="0" />
+              <stop stopColor="#f8e5b6" stopOpacity="0.34" />
+              <stop offset="1" stopColor="#f8e5b6" stopOpacity="0" />
             </radialGradient>
+
             <radialGradient id="sun-halo">
-              <stop stopColor="#ffe5b4" stopOpacity=".6" />
-              <stop offset="1" stopColor="#ffe5b4" stopOpacity="0" />
+              <stop stopColor="#ffe7b5" stopOpacity="0.65" />
+              <stop offset="1" stopColor="#ffe7b5" stopOpacity="0" />
             </radialGradient>
-            <pattern id="wallpaper" width="92" height="92"
-              patternUnits="userSpaceOnUse">
-              <path d="M46 0v92" stroke="#a58aaa"
-                strokeWidth="1" opacity=".12" />
-              <path d="M43 41l3-4 3 4-3 4Z"
-                fill="#d5bacc" opacity=".08" />
+
+            <radialGradient id="lamp-radial">
+              <stop stopColor="#ffd788" stopOpacity="0.45" />
+              <stop offset="0.55" stopColor="#f5b868" stopOpacity="0.16" />
+              <stop offset="1" stopColor="#f5b868" stopOpacity="0" />
+            </radialGradient>
+
+            <radialGradient id="photo-spot">
+              <stop stopColor="#ffe7b2" stopOpacity="0.35" />
+              <stop offset="1" stopColor="#ffe7b2" stopOpacity="0" />
+            </radialGradient>
+
+            <pattern id="wallpaper" width="84" height="84" patternUnits="userSpaceOnUse">
+              <path d="M42 0v84" stroke="#9e82a6" strokeWidth="1" opacity="0.11" />
+              <path d="M39 40l3-4 3 4-3 4Z" fill="#d3b8cb" opacity="0.08" />
             </pattern>
-            <mask id="room-cutout" maskUnits="userSpaceOnUse"
-              x="-3000" y="-3000" width="7000" height="7000">
-              <rect x="-3000" y="-3000" width="7000" height="7000"
-                fill="white" />
-              <rect data-node="hole" x="185" y="145" width="350"
-                height="445" rx="104" fill="black" />
+
+            <linearGradient id="wood-floor" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#2f2433" />
+              <stop offset="100%" stopColor="#1e1724" />
+            </linearGradient>
+
+            {/* 3 Persistent Window Bay Cutouts exposing exterior sky & Canvas weather */}
+            <mask
+              id="room-cutout"
+              maskUnits="userSpaceOnUse"
+              x="-2000"
+              y="-1000"
+              width="6000"
+              height="4000"
+            >
+              <rect x="-2000" y="-1000" width="6000" height="4000" fill="white" />
+              <rect x="420" y="148" width="210" height="414" rx="24" fill="black" />
+              <rect x="650" y="148" width="210" height="414" rx="24" fill="black" />
+              <rect x="880" y="148" width="210" height="414" rx="24" fill="black" />
             </mask>
           </defs>
 
+          {/* Continuous Exterior Sky behind Window Panes */}
+          <rect x="-1200" y="-600" width="4600" height="2200" fill="url(#sky-grad)" />
+
+          {/* Moon (mutually exclusive with Sun) */}
           <g data-node="moon">
-            <circle cx="446" cy="230" r="150" fill="url(#moon-halo)" />
+            <circle cx="805" cy="245" r="145" fill="url(#moon-halo)" />
             <path
-              d="M466 172C411 178 402 238 444 267C404 263 380 227 394 198C409 168 442 161 466 172Z"
-              fill="#f0debb"
+              d="M824 190 C776 196 768 250 806 276 C770 272 748 240 760 214 C774 186 804 180 824 190 Z"
+              fill="#f5e3bf"
             />
           </g>
 
+          {/* Sun & Angled Sunbeams (mutually exclusive with Moon) */}
           <g data-node="sun" opacity="0">
-            <circle cx="279" cy="377" r="270" fill="url(#sun-halo)" />
-            <circle cx="279" cy="377" r="50" fill="#f5d9a9" />
-            <path d="M247 427L143 700M279 433V745M313 426L421 700"
-              stroke="#f5d9a9" strokeWidth="22" opacity=".08" />
-          </g>
-
-          <g data-node="cloudA" fill="#b5a3c6" opacity=".45">
+            <circle cx="535" cy="265" r="240" fill="url(#sun-halo)" />
+            <circle cx="535" cy="265" r="46" fill="#fae0ad" />
             <path
-              d="M58 353c-28-1-32-28-8-36c-5-28 30-42 47-20c23-31 61-13 59 15c37-1 42 39 11 41Z"
-            />
-          </g>
-          <g data-node="cloudB" fill="#ccb8d5" opacity=".38">
-            <path
-              d="M478 435c-27 0-31-28-7-34c-2-29 32-40 48-18c22-29 59-10 57 13c34 0 39 39 9 39Z"
+              d="M500 315 L395 570 M535 320 V590 M570 314 L675 570"
+              stroke="#ffe7b8"
+              strokeWidth="20"
+              opacity="0.14"
             />
           </g>
 
+          {/* Coherent Exterior Clouds (visible ONLY when cloudy/rainy) */}
+          <g data-node="cloudA" fill="#b8a8ca" opacity="0">
+            <path d="M450 285c-24-1-28-24-7-31c-4-24 26-36 41-17c20-27 52-11 50 13c32-1 36 33 9 35Z" />
+          </g>
+          <g data-node="cloudB" fill="#cbb9d6" opacity="0">
+            <path d="M720 330c-24 0-27-24-6-30c-2-25 28-34 42-15c19-25 51-9 49 11c29 0 33 34 8 34Z" />
+          </g>
+          <g data-node="cloudC" fill="#b4a3c7" opacity="0">
+            <path d="M935 270c-22-1-25-22-6-28c-4-22 24-33 37-16c18-24 47-10 45 12c29-1 33 30 8 32Z" />
+          </g>
+
+          {/* Exterior Rolling Hills & Distant Trees visible through Window */}
           <path
-            d="M-800 858Q-300 600 0 790Q190 650 360 781Q570 644 790 790Q1200 600 1600 850V2000H-800Z"
-            fill="#51415f" opacity=".6"
+            d="M360 520 Q490 455 620 500 Q760 445 900 498 Q1030 458 1160 515 V620 H360 Z"
+            fill="#473a58"
+            opacity="0.65"
           />
           <path
-            d="M-800 935Q-250 740 70 876Q230 761 395 874Q588 747 850 885Q1200 750 1600 950V2000H-800Z"
-            fill="#342e47"
+            d="M360 550 Q510 495 660 538 Q810 490 960 535 Q1070 500 1160 545 V620 H360 Z"
+            fill="#2d263e"
           />
 
+          {/* Bedroom Back Wall + Wainscoting + Perspective Wooden Floor */}
           <g data-node="room">
             <g mask="url(#room-cutout)">
-              <rect x="-3000" y="-3000" width="7000" height="7000"
-                fill="#342c43" />
-              <rect x="-3000" y="-3000" width="7000" height="7000"
-                fill="url(#wallpaper)" />
+              <rect x="-1200" y="-600" width="4600" height="1435" fill="#362c45" />
+              <rect x="-1200" y="-600" width="4600" height="1435" fill="url(#wallpaper)" />
+              {/* Architectural wainscot molding */}
+              <path d="M-1200 660 H3400" stroke="#644e69" strokeWidth="4" opacity="0.55" />
+              <rect x="-1200" y="662" width="4600" height="162" fill="#2d243b" opacity="0.55" />
             </g>
-            <path d="M-3000 983H4000V4000H-3000Z" fill="#292537" />
-            <path d="M-3000 983H4000" stroke="#aa8a9f"
-              strokeWidth="3" opacity=".25" />
+
+            {/* Baseboard trim separating Wall & Floor */}
+            <rect x="-1200" y="820" width="4600" height="18" fill="#4b384e" />
+            <path d="M-1200 820 H3400" stroke="#8f6e86" strokeWidth="2" opacity="0.4" />
+
+            {/* Perspective Wooden Floor */}
+            <rect x="-1200" y="838" width="4600" height="1000" fill="url(#wood-floor)" />
+            {/* Perspective wooden plank seams converging toward room vanishing point */}
+            {[-400, -150, 100, 320, 520, 720, 920, 1120, 1340, 1580, 1840, 2100].map(
+              (fx) => (
+                <line
+                  key={fx}
+                  x1={fx}
+                  y1="838"
+                  x2={fx + (fx - 840) * 0.48}
+                  y2="1320"
+                  stroke="#18121f"
+                  strokeWidth="1.6"
+                  opacity="0.45"
+                />
+              ),
+            )}
+            <path d="M-1200 905 H3400 M-1200 985 H3400 M-1200 1085 H3400" stroke="#18121f" strokeWidth="1.2" opacity="0.32" />
+
+            {/* Woven Oval Bedroom Area Rug */}
+            <ellipse
+              cx="835"
+              cy="932"
+              rx="360"
+              ry="58"
+              fill="#4b3854"
+              stroke="#795c7c"
+              strokeWidth="3"
+              opacity="0.88"
+            />
+            <ellipse
+              cx="835"
+              cy="932"
+              rx="325"
+              ry="46"
+              fill="none"
+              stroke="#a8889e"
+              strokeWidth="1.5"
+              strokeDasharray="6 7"
+              opacity="0.45"
+            />
+
+            {/* Bedside Nightstand, Glowing Warm Lamp, Books & Plant (Left Cozy Zone) */}
+            <g transform="translate(80 610)">
+              {/* Nightstand floor shadow */}
+              <ellipse cx="95" cy="285" rx="85" ry="12" fill="#0d0a16" opacity="0.45" />
+              {/* Wooden Nightstand body */}
+              <rect x="20" y="70" width="150" height="185" rx="6" fill="#462b1c" stroke="#2d1a0f" strokeWidth="2" />
+              <rect x="32" y="88" width="126" height="62" rx="4" fill="#593825" stroke="#2d1a0f" strokeWidth="1.4" />
+              <rect x="32" y="162" width="126" height="72" rx="4" fill="#593825" stroke="#2d1a0f" strokeWidth="1.4" />
+              <circle cx="95" cy="119" r="5" fill="#d9b26f" />
+              <circle cx="95" cy="198" r="5" fill="#d9b26f" />
+              {/* Legs */}
+              <rect x="28" y="255" width="14" height="28" fill="#351f13" />
+              <rect x="148" y="255" width="14" height="28" fill="#351f13" />
+              {/* Warm Bedside Lamp */}
+              <g data-node="lampGlow">
+                <circle cx="72" cy="-22" r="245" fill="url(#lamp-radial)" />
+              </g>
+              <rect x="58" y="24" width="28" height="46" rx="6" fill="#c79e8d" />
+              <path d="M36 26 L52 -24 H92 L108 26 Z" fill="#f2d6ab" stroke="#a67c5c" strokeWidth="1.6" />
+              {/* Stacked Books & Mug */}
+              <rect x="115" y="54" width="46" height="16" rx="2" fill="#7d5c78" />
+              <rect x="118" y="40" width="42" height="14" rx="2" fill="#a87d76" />
+              <rect x="130" y="22" width="16" height="18" rx="3" fill="#ebd9cc" />
+            </g>
+
+            {/* Lived-in Floor Cushion & Handwritten Book near Left Window */}
+            <g transform="translate(275 885)">
+              <ellipse cx="0" cy="24" rx="48" ry="12" fill="#110e1d" opacity="0.36" />
+              <ellipse cx="0" cy="14" rx="46" ry="16" fill="#6b4f70" stroke="#98769b" strokeWidth="1.5" />
+              <path d="M-24 12 Q0 4 24 12" fill="none" stroke="#b697b9" strokeWidth="1.4" opacity="0.5" />
+              <rect x="-16" y="26" width="38" height="14" rx="2" transform="rotate(-8)" fill="#ede0cf" stroke="#9d8585" strokeWidth="1.2" />
+            </g>
+
+            {/* Framed Teddy Romantic Memory Gallery Wall (Above Diagonal Bed) */}
+            <g transform="translate(1365 385)">
+              <circle data-node="photoGlow" cx="145" cy="55" r="165" fill="url(#photo-spot)" opacity="0" />
+              {/* Frame 1: Smiling Cheek-to-Cheek Polaroid */}
+              <g transform="translate(0 12) rotate(-3)">
+                <rect width="78" height="86" rx="5" fill="#f3e6da" stroke="#704a36" strokeWidth="4" />
+                <rect x="8" y="8" width="62" height="58" fill="#463458" />
+                <circle cx="28" cy="36" r="11" fill="#e2be90" />
+                <circle cx="50" cy="37" r="11" fill="#dcbcd8" />
+                <circle cx="23" cy="25" r="4" fill="#e2be90" />
+                <circle cx="55" cy="26" r="4" fill="#dcbcd8" />
+              </g>
+              {/* Frame 2: Oval Brass Kiss Memory */}
+              <g transform="translate(106 4)">
+                <ellipse cx="38" cy="44" rx="34" ry="42" fill="#523b5e" stroke="#caa25c" strokeWidth="4" />
+                <circle cx="28" cy="42" r="10" fill="#e2be90" />
+                <circle cx="48" cy="42" r="10" fill="#dcbcd8" />
+                <path d="M36 24 q-4-6-7-1 q-1 4 7 9 q8-5 7-9 q-3-5-7 1" fill="#e59cb4" />
+              </g>
+              {/* Frame 3: Starlight Hug */}
+              <g transform="translate(206 16) rotate(3)">
+                <rect width="74" height="68" rx="4" fill="#f1e4d6" stroke="#5d3b28" strokeWidth="4" />
+                <rect x="7" y="7" width="60" height="54" fill="#2c2444" />
+                <ellipse cx="30" cy="38" rx="11" ry="14" fill="#e2be90" />
+                <ellipse cx="44" cy="38" rx="11" ry="14" fill="#dcbcd8" />
+              </g>
+            </g>
+
+            {/* Right Cozy Bookshelf & Potted Plant (Beyond Bed) */}
+            <g transform="translate(1680 480)">
+              <rect x="0" y="0" width="145" height="360" rx="6" fill="#3f2618" stroke="#28160d" strokeWidth="2" />
+              <rect x="12" y="18" width="121" height="82" fill="#2b1910" />
+              <rect x="12" y="116" width="121" height="86" fill="#2b1910" />
+              <rect x="12" y="218" width="121" height="96" fill="#2b1910" />
+              {/* Books */}
+              <rect x="20" y="38" width="14" height="60" fill="#8d667e" />
+              <rect x="36" y="44" width="16" height="54" fill="#b48a78" />
+              <rect x="54" y="34" width="15" height="64" fill="#6f8798" />
+              <rect x="80" y="142" width="16" height="58" fill="#a87686" />
+              <rect x="98" y="135" width="14" height="65" fill="#7c638c" />
+            </g>
           </g>
 
-          <rect data-node="cold" x="-3000" y="-3000"
-            width="7000" height="7000" fill="#849cce" opacity="0" />
+          {/* Subtle Cold Atmosphere Tint */}
+          <rect data-node="cold" x="-1200" y="-600" width="4600" height="2200" fill="#7e9ad4" opacity="0" />
         </svg>
 
+        {/* ── CANVAS LAYER: STRICTLY CLIPPED EXTERIOR WEATHER + PARTICLES ─── */}
         <canvas ref={canvas} className="weather" />
 
-        <svg className="art art-front" viewBox="0 0 720 1080" preserveAspectRatio="xMidYMid meet">
+        {/* ── FRONT LAYER: WINDOW FRAME, MIRROR, 3D BED, TEDDIES & PROPS ──── */}
+        <svg
+          ref={svgFront}
+          className="art art-front"
+          viewBox="0 0 1440 900"
+          preserveAspectRatio="none"
+        >
           <defs>
-            <clipPath id="imagination-clip">
-              <rect x="151" y="277" width="418" height="263" rx="88" />
-            </clipPath>
             <linearGradient id="quilt-color" x1="0" y1="0" x2="0" y2="1">
-              <stop stopColor="#b797b0" />
-              <stop offset="1" stopColor="#856682" />
+              <stop stopColor="#b896b0" />
+              <stop offset="1" stopColor="#816180" />
+            </linearGradient>
+            <linearGradient id="wood-headboard" x1="0" y1="0" x2="0" y2="1">
+              <stop stopColor="#653d24" />
+              <stop offset="1" stopColor="#412414" />
+            </linearGradient>
+            <linearGradient id="mattress-top" x1="0" y1="0" x2="1" y2="1">
+              <stop stopColor="#f3eae0" />
+              <stop offset="1" stopColor="#dfd0c4" />
+            </linearGradient>
+            <linearGradient id="mirror-glass-grad" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stopColor="#2c2642" />
+              <stop offset="50%" stopColor="#3c3458" />
+              <stop offset="100%" stopColor="#262038" />
             </linearGradient>
             <radialGradient id="lantern-glow">
-              <stop stopColor="#ffe1a1" stopOpacity=".4" />
+              <stop stopColor="#ffe1a1" stopOpacity="0.45" />
               <stop offset="1" stopColor="#ffe1a1" stopOpacity="0" />
             </radialGradient>
             <radialGradient id="snowglobe-halo">
-              <stop stopColor="#e8d5f5" stopOpacity=".35" />
+              <stop stopColor="#e8d5f5" stopOpacity="0.38" />
               <stop offset="1" stopColor="#e8d5f5" stopOpacity="0" />
             </radialGradient>
             <linearGradient id="wood-tier1" x1="0" y1="0" x2="0" y2="1">
@@ -452,292 +975,480 @@ export const CinematicStage = memo(function CinematicStage({
             </linearGradient>
             <linearGradient id="brass-plate" x1="0" y1="0" x2="1" y2="0">
               <stop stopColor="#ffe8a3" />
-              <stop offset=".5" stopColor="#d4aa50" />
+              <stop offset="0.5" stopColor="#d4aa50" />
               <stop offset="1" stopColor="#8c6b28" />
             </linearGradient>
+
+            <radialGradient id="dream-sky-grad" cx="0.5" cy="0.32" r="0.68">
+              <stop offset="0%" stopColor="#fde1c8" stopOpacity="0.65" />
+              <stop offset="48%" stopColor="#8d658c" stopOpacity="0.88" />
+              <stop offset="100%" stopColor="#2e2144" stopOpacity="1" />
+            </radialGradient>
+
+            {/* Functional Mirror Glass Clip Boundary */}
+            <clipPath id="mirror-glass-clip">
+              <path d="M1152 806 V592 A53 53 0 0 1 1258 592 V806 Z" />
+            </clipPath>
+
+            {/* Scalloped Fluffy Thought-Cloud Portal Clip Boundary (Cues 28-29) */}
+            <clipPath id="dream-cloud-clip">
+              <path d="M-190 35 C-238 32 -255 -28 -205 -56 C-212 -112 -148 -148 -98 -122 C-72 -172 18 -178 52 -128 C108 -154 176 -116 174 -58 C228 -36 226 36 172 48 C156 96 86 110 42 84 C0 116 -78 112 -106 76 C-152 94 -198 68 -190 35 Z" />
+            </clipPath>
           </defs>
 
+          {/* ── PERSISTENT TRIPLE-BAY BEDROOM WINDOW (NEVER DISAPPEARS) ───── */}
           <g data-node="window">
-            <rect x="173" y="133" width="374" height="469" rx="116"
-              fill="none" stroke="#7c6074" strokeWidth="17" />
-            <rect x="184" y="144" width="352" height="447" rx="105"
-              fill="none" stroke="#c6a7b3" strokeWidth="3" />
-            <path d="M360 148V590M187 370H533"
-              stroke="#b99aa9" strokeWidth="7" />
-            <path d="M160 608H560" stroke="#cfb0b6"
-              strokeWidth="15" strokeLinecap="round" />
+            {/* Outer architectural wood frame */}
+            <rect
+              x="402"
+              y="130"
+              width="706"
+              height="452"
+              rx="32"
+              fill="none"
+              stroke="#684a54"
+              strokeWidth="22"
+            />
+            {/* Inner recessed window casing depth */}
+            {[420, 650, 880].map((px) => (
+              <g key={px}>
+                <rect
+                  x={px}
+                  y="148"
+                  width="210"
+                  height="414"
+                  rx="24"
+                  fill="none"
+                  stroke="#9c7a86"
+                  strokeWidth="5"
+                />
+                {/* Windowpane cross mullions */}
+                <path
+                  d={`M${px + 105} 150 V560 M${px + 4} 352 H${px + 206}`}
+                  stroke="#8b6c7a"
+                  strokeWidth="5"
+                />
+                {/* Subtle diagonal glass reflection streaks */}
+                <path
+                  d={`M${px + 28} 205 L${px + 85} 165 M${px + 34} 230 L${px + 110} 175 M${px + 115} 530 L${px + 188} 470`}
+                  stroke="#ffffff"
+                  strokeWidth="3.5"
+                  strokeLinecap="round"
+                  opacity="0.1"
+                />
+              </g>
+            ))}
 
+            {/* Projecting wooden window sill ledge + shadow */}
+            <path d="M385 596 H1125" stroke="#181224" strokeWidth="10" opacity="0.35" />
+            <rect x="380" y="576" width="750" height="22" rx="6" fill="#7c5648" stroke="#4a3028" strokeWidth="2" />
+            {/* Small potted windowsill succulent & keepsake */}
+            <g transform="translate(465 552)">
+              <path d="M-12 0 H12 L9 24 H-9 Z" fill="#b47b6c" />
+              <ellipse cx="-6" cy="-5" rx="7" ry="10" transform="rotate(-20 -6 -5)" fill="#799476" />
+              <ellipse cx="6" cy="-5" rx="7" ry="10" transform="rotate(20 6 -5)" fill="#799476" />
+              <ellipse cx="0" cy="-8" rx="6" ry="11" fill="#8da888" />
+            </g>
+
+            {/* Curtain rod & finial rings */}
+            <line x1="365" y1="108" x2="1145" y2="108" stroke="#61423c" strokeWidth="8" strokeLinecap="round" />
+            <circle cx="362" cy="108" r="9" fill="#9c7260" />
+            <circle cx="1148" cy="108" r="9" fill="#9c7260" />
+
+            {/* Soft weighted curtains with natural fabric folds */}
             <g data-node="curtainA">
-              <path d="M172 175Q143 330 168 543"
-                stroke="#8c6b83" strokeWidth="24"
-                fill="none" strokeLinecap="round" />
+              <path
+                d="M382 114 Q362 325 384 576 H445 Q424 340 434 114 Z"
+                fill="#7b5b76"
+                stroke="#583f56"
+                strokeWidth="2"
+              />
+              <path d="M398 120 Q384 330 400 572 M416 120 Q406 335 422 572" stroke="#9e7d98" strokeWidth="2.2" fill="none" opacity="0.45" />
             </g>
             <g data-node="curtainB">
-              <path d="M547 175Q577 330 552 543"
-                stroke="#8c6b83" strokeWidth="24"
-                fill="none" strokeLinecap="round" />
+              <path
+                d="M622 114 Q608 320 622 576 H658 Q668 320 656 114 Z"
+                fill="#73546f"
+                stroke="#583f56"
+                strokeWidth="1.8"
+                opacity="0.9"
+              />
+            </g>
+            <g data-node="curtainC">
+              <path
+                d="M1066 114 Q1086 325 1064 576 H1126 Q1142 340 1120 114 Z"
+                fill="#7b5b76"
+                stroke="#583f56"
+                strokeWidth="2"
+              />
+              <path d="M1086 120 Q1098 335 1084 572 M1105 120 Q1116 330 1102 572" stroke="#9e7d98" strokeWidth="2.2" fill="none" opacity="0.45" />
             </g>
 
-            <path d="M155 158Q360 39 565 158"
-              fill="none" stroke="#aa8a9a" strokeWidth="2" />
-
-            {[170, 230, 294, 360, 426, 490, 550].map((x, index) => (
-              <g key={x}>
-                <path
-                  d={`M${x} ${index === 3 ? 100 : 121}v17`}
-                  stroke="#b59a9f" strokeWidth="2"
-                />
-                <circle cx={x} cy={index === 3 ? 120 : 141}
-                  r="4.5" fill="#f0d2a5" />
-                <circle cx={x} cy={index === 3 ? 120 : 141}
-                  r="10" fill="#f0d2a5" opacity=".05" />
+            {/* Warm fairy lights strung gently across window top arch */}
+            <path
+              d="M415 152 Q525 186 640 152 Q755 186 870 152 Q985 186 1095 152"
+              fill="none"
+              stroke="#9e828c"
+              strokeWidth="1.6"
+            />
+            {[450, 525, 600, 680, 755, 830, 910, 985, 1060].map((fx, i) => (
+              <g key={fx}>
+                <circle cx={fx} cy={i % 2 ? 168 : 162} r="3.5" fill="#f7dba8" />
+                <circle cx={fx} cy={i % 2 ? 168 : 162} r="9" fill="#ffe1a6" opacity="0.14" />
               </g>
             ))}
           </g>
 
-          <g data-node="camera">
-            <ellipse data-node="shadowA" rx="65" ry="11"
-              fill="#121020" opacity=".15" />
-            <ellipse data-node="shadowB" rx="65" ry="11"
-              fill="#121020" opacity=".15" />
+          {/* ── FUNCTIONAL DRESSING TABLE & REAL-TIME MIRROR (BESIDE BED) ── */}
+          <g data-node="mirrorGroup">
+            {/* Vanity floor shadow */}
+            <ellipse cx="1205" cy="912" rx="82" ry="12" fill="#0d0a16" opacity="0.4" />
+            {/* Mirror carved wooden bezel */}
+            <path
+              d="M1142 812 V590 A63 63 0 0 1 1268 590 V812 Z"
+              fill="#563421"
+              stroke="#2e1a0f"
+              strokeWidth="3"
+            />
+            {/* Mirror Glass Backing */}
+            <path
+              d="M1152 806 V592 A53 53 0 0 1 1258 592 V806 Z"
+              fill="url(#mirror-glass-grad)"
+            />
 
-            <g data-node="bed" opacity="0">
-              {/* ── WOODEN BED — Handcrafted daybed with headboard ── */}
-              {/* Mattress base shadow */}
-              <ellipse cx="363" cy="998" rx="195" ry="12" fill="#0e0c1a" opacity=".35" />
-
-              {/* Foot posts (front) */}
-              <rect x="192" y="910" width="20" height="88" rx="6"
-                fill="#5c3820" stroke="#3e2210" strokeWidth="1.5" />
-              <ellipse cx="202" cy="910" rx="13" ry="8" fill="#7a4e2e" stroke="#3e2210" strokeWidth="1.5" />
-              <rect x="528" y="910" width="20" height="88" rx="6"
-                fill="#5c3820" stroke="#3e2210" strokeWidth="1.5" />
-              <ellipse cx="538" cy="910" rx="13" ry="8" fill="#7a4e2e" stroke="#3e2210" strokeWidth="1.5" />
-
-              {/* Head posts (back-ish, taller) */}
-              <rect x="192" y="828" width="20" height="90" rx="6"
-                fill="#5c3820" stroke="#3e2210" strokeWidth="1.5" />
-              <ellipse cx="202" cy="828" rx="13" ry="8" fill="#7a4e2e" stroke="#3e2210" strokeWidth="1.5" />
-              <rect x="528" y="828" width="20" height="90" rx="6"
-                fill="#5c3820" stroke="#3e2210" strokeWidth="1.5" />
-              <ellipse cx="538" cy="828" rx="13" ry="8" fill="#7a4e2e" stroke="#3e2210" strokeWidth="1.5" />
-
-              {/* Headboard panel */}
-              <path d="M202 836Q360 808 538 836V918Q360 926 202 918Z"
-                fill="#4a2e18" stroke="#3e2210" strokeWidth="2" />
-              {/* Headboard raised rail top */}
-              <path d="M202 836Q360 812 538 836"
-                fill="none" stroke="#7a5035" strokeWidth="8" strokeLinecap="round" />
-              {/* Headboard carved detail */}
-              <path d="M230 862Q360 848 490 862"
-                fill="none" stroke="#6a4028" strokeWidth="3" strokeLinecap="round" opacity=".7" />
-              <path d="M240 876Q360 864 480 876"
-                fill="none" stroke="#6a4028" strokeWidth="2" strokeLinecap="round" opacity=".5" />
-              {/* Wood grain lines on headboard */}
-              <path d="M270 840v72M360 836v82M450 840v72"
-                stroke="#3e2410" strokeWidth="1" strokeDasharray="3 9" opacity=".4" />
-              {/* Headboard side rails */}
-              <rect x="192" y="836" width="12" height="82" rx="3"
-                fill="#5a3820" stroke="#3e2210" strokeWidth="1" />
-              <rect x="536" y="836" width="12" height="82" rx="3"
-                fill="#5a3820" stroke="#3e2210" strokeWidth="1" />
-
-              {/* Mattress */}
-              <path d="M204 918Q360 908 536 918V988Q360 998 204 988Z"
-                fill="#ece0d4" stroke="#b8a09a" strokeWidth="2" />
-              {/* Mattress piping top edge */}
-              <path d="M204 918Q360 908 536 918"
-                fill="none" stroke="#d4c0ba" strokeWidth="6" strokeLinecap="round" />
-              {/* Mattress side seam */}
-              <path d="M204 918V988M536 918V988"
-                stroke="#c4aea8" strokeWidth="2" strokeLinecap="round" />
-              {/* Mattress quilted pattern */}
-              <path d="M270 926L265 980M360 924V982M450 926L455 980"
-                stroke="#c4b0a8" strokeWidth="1" strokeDasharray="4 8" opacity=".5" />
-              <path d="M210 952Q360 946 530 952"
-                fill="none" stroke="#c4b0a8" strokeWidth="1" strokeDasharray="4 8" opacity=".5" />
-
-              {/* Pillows */}
-              <path d="M228 912Q280 900 340 908V928Q280 936 228 926Z"
-                fill="#f5ece8" stroke="#c8b4b0" strokeWidth="1.5" />
-              <ellipse cx="284" cy="918" rx="52" ry="11"
-                fill="#f8f1ee" stroke="none" opacity=".6" />
-              <path d="M380 910Q440 900 495 910V928Q440 938 380 926Z"
-                fill="#ede0e8" stroke="#c0aab8" strokeWidth="1.5" />
-              <ellipse cx="438" cy="918" rx="52" ry="11"
-                fill="#f4eef2" stroke="none" opacity=".6" />
-              {/* Pillow soft fold shadows */}
-              <path d="M230 920Q280 926 338 921"
-                fill="none" stroke="#c4b0aa" strokeWidth="1.5" strokeLinecap="round" opacity=".4" />
-              <path d="M382 918Q440 924 492 918"
-                fill="none" stroke="#baaab6" strokeWidth="1.5" strokeLinecap="round" opacity=".4" />
-
-              {/* Foot rail crossbar */}
-              <path d="M204 988Q360 998 536 988"
-                fill="none" stroke="#5c3820" strokeWidth="12" strokeLinecap="round" />
-              <path d="M204 988Q360 998 536 988"
-                fill="none" stroke="#7a4e2e" strokeWidth="4" strokeLinecap="round" opacity=".5" />
-            </g>
-
-            <g data-node="gifts" opacity="0">
-              {["#c1a9c8", "#c9b695", "#a5b5bf", "#c89dad", "#ac9ac4"]
-                .map((color, index) => (
-                  <Present key={color} index={index} color={color} />
-                ))}
-            </g>
-
-            <g data-node="flowers" opacity="0"
-              transform="translate(550 899)">
-              <path d="M0 48L-17-15M0 48L12-24M0 48L29-4"
-                stroke="#8d9b86" strokeWidth="3" />
-              {[-17, 12, 29].map((x, index) => (
-                <g key={x}
-                  transform={`translate(${x} ${-15 + index * 7})`}>
-                  <circle cx="-7" r="9" fill="#d7aac0" />
-                  <circle cx="7" r="9" fill="#d7aac0" />
-                  <circle cy="-7" r="9" fill="#d7aac0" />
-                  <circle cy="7" r="9" fill="#d7aac0" />
-                  <circle r="5" fill="#eed9a5" />
-                </g>
-              ))}
-              <path d="M-21 19L24 17L10 62H-8Z" fill="#e8d7c0" />
-              <path d="M-15 34L17 33" stroke="#bb91a7" strokeWidth="4" />
-            </g>
-
-            <BearRig id="a" variant="a" />
-            <BearRig id="b" variant="b" />
-
-            <g data-node="letter" opacity="0">
-              <rect x="-23" y="-16" width="46" height="32" rx="4"
-                fill="#f2e2cc" stroke="#b29a9f" strokeWidth="1.5" />
-              <path d="M-21-14L0 2L21-14"
-                fill="none" stroke="#b29a9f" strokeWidth="1.5" />
-              <circle cy="2" r="4" fill="#b78b9c" />
-            </g>
-
-            <g data-node="phone" opacity="0">
-              <rect x="-14" y="-29" width="28" height="54" rx="6"
-                fill="#3d3246" stroke="#dec4d1" strokeWidth="1.5" />
-              <rect x="-10" y="-21" width="20" height="33" rx="2"
-                fill="#b8a5cd" />
-              <path d="M-5-12H6M-5-5H3M-5 2H7"
-                stroke="#eaddec" strokeWidth="1.5" />
-              <circle cy="18" r="2" fill="#d4bdd9" />
-            </g>
-
-            <g data-node="lantern" opacity="0">
-              <circle r="55" fill="url(#lantern-glow)" />
-              <path d="M-10-4Q0-15 10-4V19Q0 28-10 19Z"
-                fill="#eed19a" stroke="#ab8279" strokeWidth="1.5" />
-              <path d="M-6-7v-10q6-11 12 0v10"
-                fill="none" stroke="#c2a8a9" strokeWidth="2" />
-              <path d="M0-3V20" stroke="#fff0c9" strokeWidth="3" />
-            </g>
-
-            <g data-node="quilt" opacity="0">
-              {/* Quilt draped over both seated characters on the bed */}
-              {/* Main quilt body — rises over laps, drapes naturally */}
+            {/* REAL-TIME MIRRORED CHARACTER REFLECTIONS (clipped inside mirror glass!) */}
+            <g clipPath="url(#mirror-glass-clip)">
+              <g data-node="mirrorWrapA">
+                <BearRig id="mirror-a" variant="a" />
+              </g>
+              <g data-node="mirrorWrapB">
+                <BearRig id="mirror-b" variant="b" />
+              </g>
+              {/* Diagonal glass sheen & inner rim reflection over reflected teddies */}
               <path
-                d="M196 898Q362 876 544 898L560 988Q360 1004 160 988Z"
-                fill="url(#quilt-color)"
-                stroke="#70586f" strokeWidth="3"
+                d="M1146 650 L1225 545 M1146 685 L1255 552"
+                stroke="#ffffff"
+                strokeWidth="10"
+                opacity="0.09"
               />
-              {/* Top quilted fold — rolls over the bodies naturally */}
-              <path d="M200 898Q362 879 540 898"
-                fill="none" stroke="#dfbcca"
-                strokeWidth="18" strokeLinecap="round" />
-              {/* Secondary fold shadow */}
-              <path d="M210 905Q362 886 530 905"
-                fill="none" stroke="#c4a0b5"
-                strokeWidth="6" strokeLinecap="round" opacity=".5" />
-              {/* Quilted stitching grid lines */}
               <path
-                d="M230 910L218 988M305 904L300 992M380 902V994M455 904L462 990M530 912L548 986M176 946Q362 968 554 946M168 970Q362 992 562 970"
-                fill="none" stroke="#d0abc0"
-                strokeWidth="1.5" strokeDasharray="3 7" opacity=".6"
+                d="M1152 806 V592 A53 53 0 0 1 1258 592 V806"
+                fill="none"
+                stroke="#e8d8f0"
+                strokeWidth="3"
+                opacity="0.24"
               />
-              {/* Heart motif centre-quilt */}
-              <path
-                d="M351 936q-15-20-24-5q-4 10 24 28q28-18 24-28q-9-15-24 5"
-                fill="#cda9bb" opacity=".65"
-              />
-              {/* Warm ambient glow on quilt surface */}
-              <ellipse cx="362" cy="940" rx="140" ry="22"
-                fill="#f5e0ea" opacity=".08" />
             </g>
+
+            {/* Dressing Table Console (occludes everything below y = 808) */}
+            <rect x="1128" y="808" width="154" height="58" rx="5" fill="#4f2f1d" stroke="#2d190e" strokeWidth="2" />
+            <rect x="1138" y="818" width="62" height="36" rx="3" fill="#633e28" stroke="#2d190e" strokeWidth="1.2" />
+            <rect x="1210" y="818" width="62" height="36" rx="3" fill="#633e28" stroke="#2d190e" strokeWidth="1.2" />
+            <circle cx="1169" cy="836" r="3.5" fill="#dfb86f" />
+            <circle cx="1241" cy="836" r="3.5" fill="#dfb86f" />
+            {/* Vanity Legs */}
+            <rect x="1138" y="866" width="12" height="44" fill="#3a2114" />
+            <rect x="1260" y="866" width="12" height="44" fill="#3a2114" />
+            {/* Small perfume bottle & candle on vanity top */}
+            <rect x="1148" y="786" width="16" height="22" rx="4" fill="#dcb8d4" stroke="#997396" strokeWidth="1.2" />
+            <circle cx="1156" cy="782" r="4" fill="#e5c782" />
+            <rect x="1242" y="790" width="14" height="18" rx="2" fill="#f3e2ce" />
+            <ellipse cx="1249" cy="785" rx="2.5" ry="4.5" fill="#ffd98a" />
           </g>
 
+          {/* ── DIAGONAL 3D-PERSPECTIVE WOODEN BED (BESIDE WINDOW & MIRROR) ─ */}
+          <g data-node="bed">
+            {/* Deep floor contact shadow under diagonal bed */}
+            <polygon
+              points="1235,965 1545,1005 1665,865 1370,835"
+              fill="#0c0916"
+              opacity="0.5"
+            />
+
+            {/* Back Headposts & Carved Walnut Headboard along back wall */}
+            <rect x="1362" y="655" width="22" height="190" rx="6" fill="#52301b" stroke="#2d180d" strokeWidth="2" />
+            <ellipse cx="1373" cy="655" rx="14" ry="8" fill="#76492d" stroke="#2d180d" strokeWidth="1.5" />
+            <rect x="1635" y="680" width="22" height="195" rx="6" fill="#52301b" stroke="#2d180d" strokeWidth="2" />
+            <ellipse cx="1646" cy="680" rx="14" ry="8" fill="#76492d" stroke="#2d180d" strokeWidth="1.5" />
+
+            <path
+              d="M1373 668 Q1510 645 1646 692 V825 Q1510 812 1373 796 Z"
+              fill="url(#wood-headboard)"
+              stroke="#2d180d"
+              strokeWidth="2.2"
+            />
+            <path
+              d="M1373 668 Q1510 648 1646 692"
+              fill="none"
+              stroke="#7e5134"
+              strokeWidth="8"
+              strokeLinecap="round"
+            />
+            <path
+              d="M1402 706 Q1510 692 1618 724"
+              fill="none"
+              stroke="#70442a"
+              strokeWidth="2.5"
+              opacity="0.7"
+            />
+
+            {/* Diagonal Wooden Side Rail & Front Frame drawn UNDERNEATH Mattress */}
+            <polygon
+              points="1368,828 1244,954 1244,974 1368,848"
+              fill="#4d2c19"
+              stroke="#2a150b"
+              strokeWidth="1.8"
+            />
+            <polygon
+              points="1244,954 1532,992 1532,1012 1244,974"
+              fill="#5d3620"
+              stroke="#2a150b"
+              strokeWidth="1.8"
+            />
+
+            {/* Thick 3D Perspective Mattress + Side Thickness + Piping */}
+            {/* Mattress diagonal LEFT side thickness face */}
+            <polygon
+              points="1368,782 1244,908 1244,954 1368,828"
+              fill="#ccb8ae"
+              stroke="#9e8780"
+              strokeWidth="1.6"
+            />
+            {/* Mattress FRONT thickness face */}
+            <polygon
+              points="1244,908 1532,946 1532,992 1244,954"
+              fill="#ded0c6"
+              stroke="#9e8780"
+              strokeWidth="1.6"
+            />
+            {/* Top mattress sleeping surface (angled diagonally forward!) */}
+            <polygon
+              points="1368,782 1640,814 1532,946 1244,908"
+              fill="url(#mattress-top)"
+              stroke="#b8a19a"
+              strokeWidth="2"
+            />
+            {/* Mattress quilted surface stitching & piping */}
+            <path
+              d="M1368 782 L1244 908 L1532 946 L1640 814"
+              fill="none"
+              stroke="#cbb4ac"
+              strokeWidth="4.5"
+              strokeLinejoin="round"
+            />
+            <path
+              d="M1430 792 L1320 916 M1505 800 L1400 926 M1575 808 L1470 936 M1308 844 L1588 878"
+              stroke="#c4aea7"
+              strokeWidth="1.2"
+              strokeDasharray="4 7"
+              opacity="0.65"
+            />
+
+            {/* Plump Cushioned Pillows */}
+            <path
+              d="M1382 778 Q1432 762 1485 776 L1462 812 Q1410 812 1366 798 Z"
+              fill="#f8f0ec"
+              stroke="#c6b0ac"
+              strokeWidth="1.5"
+            />
+            <path
+              d="M1496 786 Q1554 776 1608 796 L1582 830 Q1525 826 1476 812 Z"
+              fill="#efe3eb"
+              stroke="#bfa9b8"
+              strokeWidth="1.5"
+            />
+
+            {/* Front-left footpost */}
+            <rect x="1226" y="886" width="22" height="114" rx="6" fill="#5e3821" stroke="#2d180d" strokeWidth="2" />
+            <ellipse cx="1237" cy="886" rx="14" ry="8" fill="#815233" stroke="#2d180d" strokeWidth="1.5" />
+            {/* Front-right footpost */}
+            <rect x="1524" y="922" width="22" height="116" rx="6" fill="#5e3821" stroke="#2d180d" strokeWidth="2" />
+            <ellipse cx="1535" cy="922" rx="14" ry="8" fill="#815233" stroke="#2d180d" strokeWidth="1.5" />
+          </g>
+
+          {/* ── WOODEN FOOTSTOOLS FOR WINDOW-GAZING (CUE 42) ──────────────── */}
+          {(["stoolA", "stoolB"] as const).map((stoolId) => (
+            <g key={stoolId} data-node={stoolId} opacity="0">
+              <ellipse cx="0" cy="48" rx="46" ry="8" fill="#0d0a16" opacity="0.4" />
+              <path d="M-32 8 L-40 48 H-28 L-22 8 Z" fill="#4f2f1d" stroke="#2a160c" strokeWidth="1.5" />
+              <path d="M32 8 L40 48 H28 L22 8 Z" fill="#4f2f1d" stroke="#2a160c" strokeWidth="1.5" />
+              <rect x="-44" y="-6" width="88" height="16" rx="5" fill="#73482e" stroke="#361f12" strokeWidth="1.8" />
+              <path d="M-36 -2 H36" stroke="#996444" strokeWidth="2.5" strokeLinecap="round" opacity="0.5" />
+            </g>
+          ))}
+
+          {/* ── CHARACTER CONTACT SHADOWS ───────────────────────────────────── */}
+          <ellipse data-node="shadowA" rx="54" ry="11" fill="#100d1c" opacity="0.24" />
+          <ellipse data-node="shadowB" rx="54" ry="11" fill="#100d1c" opacity="0.24" />
+
+          {/* ── MOCHI (TEDDY A) & YUME (TEDDY B) ──────────────────────────── */}
+          <g data-node="stageBears">
+            <BearRig id="a" variant="a" />
+            <BearRig id="b" variant="b" />
+          </g>
+
+          {/* ── SHARED QUILT (RAZAI) FOR CUE 43 ON DIAGONAL BED ────────────── */}
+          <g data-node="quilt" opacity="0">
+            <path
+              d="M1302 848 Q1425 824 1558 854 L1528 972 Q1385 954 1252 932 Z"
+              fill="url(#quilt-color)"
+              stroke="#685069"
+              strokeWidth="3"
+              strokeLinejoin="round"
+            />
+            {/* Plush rolled top quilt fold */}
+            <path
+              d="M1305 848 Q1425 828 1554 854"
+              fill="none"
+              stroke="#e5c6d4"
+              strokeWidth="16"
+              strokeLinecap="round"
+            />
+            {/* Quilted diamond stitching */}
+            <path
+              d="M1355 860 L1320 940 M1425 852 L1405 954 M1495 858 L1485 964 M1278 898 Q1415 920 1538 914"
+              fill="none"
+              stroke="#d6b4c8"
+              strokeWidth="1.5"
+              strokeDasharray="4 6"
+              opacity="0.65"
+            />
+            <path
+              d="M1412 895 q-14-18-22-4 q-3 9 22 25 q25-16 22-25 q-8-14-22 4"
+              fill="#d6b3c6"
+              opacity="0.68"
+            />
+          </g>
+
+          {/* Thought Cloud Trail Bubbles rising from Mochi's head (Cues 28–29) */}
+          <g data-node="thought" opacity="0">
+            <circle cx="-12" cy="4" r="6" fill="#f2e6f5" stroke="#caaede" strokeWidth="1.6" opacity="0.92" />
+            <circle cx="8" cy="-26" r="10" fill="#f2e6f5" stroke="#caaede" strokeWidth="1.8" opacity="0.94" />
+            <circle cx="24" cy="-64" r="15" fill="#f2e6f5" stroke="#caaede" strokeWidth="2" opacity="0.96" />
+          </g>
+
+          {/* Scalloped Fluffy Thought-Cloud Dream Portal (Cues 28–29) */}
+          <g data-node="dreamScene" opacity="0">
+            <g clipPath="url(#dream-cloud-clip)">
+              <rect x="-260" y="-200" width="520" height="340" fill="url(#dream-sky-grad)" />
+              {/* Soft golden bokeh orbs */}
+              <circle cx="-120" cy="-65" r="28" fill="#ffe6bf" opacity="0.2" />
+              <circle cx="125" cy="-50" r="34" fill="#ffd9ec" opacity="0.18" />
+              <circle cx="-45" cy="-115" r="18" fill="#fff0d1" opacity="0.22" />
+              <circle cx="75" cy="-105" r="22" fill="#ffe1ea" opacity="0.18" />
+              <ellipse cx="0" cy="105" rx="250" ry="65" fill="#5e436a" opacity="0.62" />
+              <circle cx="-90" cy="-85" r="2.8" fill="#fff7e2" opacity="0.78" />
+              <circle cx="95" cy="-95" r="2.4" fill="#fff7e2" opacity="0.78" />
+              <circle cx="60" cy="-45" r="2" fill="#ffe6f0" opacity="0.7" />
+              <circle cx="-65" cy="-40" r="2.4" fill="#ffe6f0" opacity="0.75" />
+              <BearRig id="dream-a" variant="a" />
+              <BearRig id="dream-b" variant="b" />
+            </g>
+            {/* Fluffy scalloped outer cloud rim */}
+            <path
+              d="M-190 35 C-238 32 -255 -28 -205 -56 C-212 -112 -148 -148 -98 -122 C-72 -172 18 -178 52 -128 C108 -154 176 -116 174 -58 C228 -36 226 36 172 48 C156 96 86 110 42 84 C0 116 -78 112 -106 76 C-152 94 -198 68 -190 35 Z"
+              fill="none"
+              stroke="#f2e2f7"
+              strokeWidth="6"
+              opacity="0.88"
+            />
+          </g>
+          <g data-node="gifts" opacity="0">
+            <rect x="-20" y="-34" width="40" height="34" rx="5" fill="#c89dad" stroke="#7c5d72" strokeWidth="1.5" />
+            <rect x="-23" y="-42" width="46" height="10" rx="3" fill="#d7b1bf" stroke="#7c5d72" strokeWidth="1.5" />
+            <path d="M0 -42 V0 M-20 -18 H20" stroke="#f7e9d3" strokeWidth="4" />
+            <path d="M0 -43 C-20 -58 -20 -34 0 -43 C20 -58 20 -34 0 -43" fill="none" stroke="#f7e9d3" strokeWidth="3.2" />
+          </g>
+
+          <g data-node="flowers" opacity="0">
+            <path d="M0 24 L-12 -18 M0 24 L6 -24 M0 24 L18 -12" stroke="#859a7e" strokeWidth="2.8" />
+            {[-12, 6, 18].map((x, idx) => (
+              <g key={x} transform={`translate(${x} ${-18 + idx * 4})`}>
+                <circle cx="-5" r="7" fill="#dfadc2" />
+                <circle cx="5" r="7" fill="#dfadc2" />
+                <circle cy="-5" r="7" fill="#dfadc2" />
+                <circle cy="5" r="7" fill="#dfadc2" />
+                <circle r="4" fill="#f2dba4" />
+              </g>
+            ))}
+            <path d="M-15 8 L17 7 L7 36 H-6 Z" fill="#ebd9c3" />
+          </g>
+
+          <g data-node="ringbox" opacity="0">
+            {/* Open velvet ring box + aligned gleaming ring */}
+            <rect x="-15" y="-6" width="30" height="15" rx="4" fill="#4f293b" stroke="#2c1420" strokeWidth="1.4" />
+            <path d="M-15 -6 L-12 -24 Q0 -28 12 -24 L15 -6 Z" fill="#6b3750" stroke="#2c1420" strokeWidth="1.4" />
+            <ellipse cy="-6" rx="10" ry="3.5" fill="#f3e5ec" />
+            <circle cy="-12" r="5.5" fill="none" stroke="#f7d87c" strokeWidth="2.6" />
+            <polygon points="0,-20 3,-17 0,-14 -3,-17" fill="#eef9ff" />
+          </g>
+
+          <g data-node="cigarette" opacity="0">
+            {/* Slender unbranded restrained cigarette */}
+            <rect x="-2" y="-2" width="18" height="3.2" rx="1" fill="#f2ece4" stroke="#b8aea2" strokeWidth="0.6" />
+            <rect x="-2" y="-2" width="5" height="3.2" rx="1" fill="#c9955e" />
+            <circle cx="16" cy="-0.4" r="1.4" fill="#e67e55" opacity="0.85" />
+          </g>
+
+          <g data-node="letter" opacity="0">
+            <rect x="-21" y="-14" width="42" height="28" rx="4" fill="#f4e6d2" stroke="#ab9498" strokeWidth="1.5" />
+            <path d="M-19 -12 L0 2 L19 -12" fill="none" stroke="#ab9498" strokeWidth="1.5" />
+            <circle cy="2" r="3.6" fill="#c28ca0" />
+          </g>
+
+          {/* Phone Back Casing (screen faces Yume, NEVER audience!) */}
+          <g data-node="phone" opacity="0">
+            <rect x="-13" y="-25" width="26" height="48" rx="5" fill="#473852" stroke="#d9bfd1" strokeWidth="1.4" />
+            <rect x="-9" y="-20" width="9" height="13" rx="3" fill="#2f2438" />
+            <circle cx="-4.5" cy="-16" r="2.2" fill="#8d82a3" />
+            <circle cx="-4.5" cy="-10" r="2.2" fill="#8d82a3" />
+          </g>
+
+          <g data-node="lantern" opacity="0">
+            <circle r="52" fill="url(#lantern-glow)" />
+            <path d="M-10 -4 Q0 -14 10 -4 V18 Q0 26 -10 18 Z" fill="#efd29b" stroke="#ab8279" strokeWidth="1.4" />
+            <path d="M-6 -7 v-9 q6-10 12 0 v9" fill="none" stroke="#c2a8a9" strokeWidth="1.8" />
+            <path d="M0 -3 V18" stroke="#fff2cc" strokeWidth="2.8" />
+          </g>
+
+          {/* Incoming "Pull up" Notification (Cue 2 ONLY) */}
           <g data-node="message" opacity="0">
-            <rect x="500" y="650" width="170" height="76" rx="21"
-              fill="#f0e6e3" stroke="#ceb8cc" strokeWidth="1.5" />
-            <circle cx="522" cy="672" r="5" fill="#b39bbf" />
-            <path d="M535 672H575"
-              stroke="#b9a0b5" strokeWidth="3" strokeLinecap="round" />
-            <text x="522" y="705"
-              fontFamily="system-ui" fontSize="20" fill="#514152">
+            <rect x="0" y="0" width="152" height="64" rx="18" fill="#f3e9e4" stroke="#cab4c8" strokeWidth="1.5" />
+            <circle cx="22" cy="21" r="4.5" fill="#b39bbf" />
+            <path d="M34 21 H72" stroke="#b9a0b5" strokeWidth="2.8" strokeLinecap="round" />
+            <text x="22" y="49" fontFamily="system-ui" fontSize="18" fill="#4e3d50">
               Pull up
             </text>
           </g>
 
-          <g data-node="thought" opacity="0">
-            <circle cx="205" cy="562" r="11" fill="#dbc9df" />
-            <circle cx="186" cy="585" r="6" fill="#dbc9df" />
-            <rect x="151" y="277" width="418" height="263" rx="88"
-              fill="#dfccdd" stroke="#bba0c6" strokeWidth="3" />
+          {/* Ornate Snow Globe Climax Frame (Outro `tail` — SINGLE OMJ Plaque) */}
+          <g data-node="snowglobe" opacity="0" style={{ visibility: "hidden" }}>
+            <circle cx="0" cy="0" r="355" fill="url(#snowglobe-halo)" opacity="0.34" />
+            <circle cx="0" cy="0" r="344" fill="none" stroke="#d5c0e8" strokeWidth="6" opacity="0.62" />
+            <circle cx="0" cy="0" r="346" fill="none" stroke="#ffffff" strokeWidth="2" opacity="0.78" />
+            <path d="M-205 -210 A 330 330 0 0 1 -20 -330" fill="none" stroke="#ffffff" strokeWidth="5" strokeLinecap="round" opacity="0.65" />
+            <ellipse cx="-115" cy="-275" rx="40" ry="15" transform="rotate(-35 -115 -275)" fill="#ffffff" opacity="0.45" />
 
-            <g clipPath="url(#imagination-clip)">
-              <rect x="157" y="283" width="406" height="251"
-                fill="#b29ab4" />
-              <path
-                d="M190 282v260M245 282v260M300 282v260M355 282v260M410 282v260M465 282v260M520 282v260"
-                stroke="#d3bdce" strokeWidth="2" opacity=".45"
-              />
-              <path d="M438 306V535"
-                stroke="#8b708e" strokeWidth="8" opacity=".45" />
-              <path d="M151 530H569" stroke="#8c7089" strokeWidth="9" />
-              <BearRig id="dream-a" variant="a" />
-              <BearRig id="dream-b" variant="b" />
-            </g>
-
-            <path d="M231 302Q360 274 489 302"
-              fill="none" stroke="#f3e4ed" strokeWidth="2" opacity=".5" />
-          </g>
-
-          <g data-node="title" opacity="0">
-            <circle cx="360" cy="215" r="97"
-              fill="none" stroke="#ead5b2" strokeWidth="1" opacity=".35" />
-            <circle cx="360" cy="215" r="88"
-              fill="none" stroke="#ead5b2" strokeWidth="1" opacity=".12" />
-            <text x="360" y="221" textAnchor="middle"
-              fontFamily="Georgia,serif" fontSize="27"
-              letterSpacing="2" fill="#f4e6d4">
-              O MERI JAAN
-            </text>
-            <path d="M338 244H382"
-              stroke="#d6b4bf" strokeWidth="2" strokeLinecap="round" />
-          </g>
-
-          <g data-node="snowglobe" opacity="0">
-            <circle cx="360" cy="540" r="390" fill="url(#snowglobe-halo)" opacity=".35" />
-            <circle cx="360" cy="540" r="380" fill="none" stroke="#d5c0e8" strokeWidth="6" opacity=".55" />
-            <circle cx="360" cy="540" r="382" fill="none" stroke="#ffffff" strokeWidth="2" opacity=".75" />
-            <path d="M140 320 A 370 370 0 0 1 340 185" fill="none" stroke="#ffffff" strokeWidth="5" strokeLinecap="round" opacity=".65" />
-            <ellipse cx="260" cy="220" rx="45" ry="18" transform="rotate(-35 260 220)" fill="#ffffff" opacity=".45" />
-            <path d="M580 400 A 375 375 0 0 1 540 680" fill="none" stroke="#d4bde8" strokeWidth="8" strokeLinecap="round" opacity=".22" />
-
-            <g transform="translate(360 920)">
-              <ellipse cy="78" rx="280" ry="24" fill="#0c0a18" opacity=".6" />
-              <ellipse cy="0" rx="270" ry="26" fill="url(#wood-tier1)" stroke="#523220" strokeWidth="2" />
-              <path d="M-270 0 L-295 48 C-200 68 200 68 295 48 L270 0 Z" fill="url(#wood-body)" stroke="#422515" strokeWidth="2" />
-              <path d="M-285 24 C-190 42 190 42 285 24" fill="none" stroke="#f6dfa8" strokeWidth="4" opacity=".8" />
-              <path d="M-280 28 C-190 46 190 46 280 28" fill="none" stroke="#b89350" strokeWidth="1.5" />
-              <ellipse cy="52" rx="305" ry="28" fill="url(#wood-tier1)" stroke="#523220" strokeWidth="2" />
-              <path d="M-305 52 L-310 74 C-210 96 210 96 310 74 L305 52 Z" fill="#2d1910" />
-              <ellipse cy="74" rx="310" ry="28" fill="#22120b" />
-              <rect x="-65" y="32" width="130" height="28" rx="5" fill="url(#brass-plate)" stroke="#f5dfa5" strokeWidth="1.5" />
-              <circle cx="-56" cy="46" r="2" fill="#7a5520" />
-              <circle cx="56" cy="46" r="2" fill="#7a5520" />
-              <text x="0" y="52" textAnchor="middle" fontFamily="Georgia, serif" fontSize="16" letterSpacing="3" fill="#382108" fontWeight="bold">OMJ</text>
+            <g transform="translate(0 330)">
+              <ellipse cy="72" rx="255" ry="22" fill="#0c0a18" opacity="0.58" />
+              <ellipse cy="0" rx="242" ry="24" fill="url(#wood-tier1)" stroke="#523220" strokeWidth="2" />
+              <path d="M-242 0 L-266 44 C-180 62 180 62 266 44 L242 0 Z" fill="url(#wood-body)" stroke="#422515" strokeWidth="2" />
+              <path d="M-256 22 C-170 38 170 38 256 22" fill="none" stroke="#f6dfa8" strokeWidth="3.5" opacity="0.78" />
+              <ellipse cy="48" rx="274" ry="25" fill="url(#wood-tier1)" stroke="#523220" strokeWidth="2" />
+              <path d="M-274 48 L-280 68 C-190 88 190 88 280 68 L274 48 Z" fill="#2d1910" />
+              <rect x="-58" y="28" width="116" height="26" rx="5" fill="url(#brass-plate)" stroke="#f5dfa5" strokeWidth="1.4" />
+              <text
+                x="0"
+                y="46"
+                textAnchor="middle"
+                fontFamily="Georgia, serif"
+                fontSize="15"
+                letterSpacing="3"
+                fill="#382108"
+                fontWeight="bold"
+              >
+                OMJ
+              </text>
             </g>
           </g>
         </svg>
@@ -745,6 +1456,24 @@ export const CinematicStage = memo(function CinematicStage({
 
       <div className="vignette" aria-hidden="true" />
       <LyricsDisplay ref={lyrics} />
+
+      {orbitHud !== null && (
+        <div className="orbit-badge" role="status" aria-live="polite">
+          360° {orbitHud}°
+        </div>
+      )}
+
+      {fastBadge && (
+        <div className="fast-badge" role="status" aria-live="polite">
+          2x &gt;&gt;
+        </div>
+      )}
+
+      {seekBadge && (
+        <div className={`seek-ripple seek-${seekBadge.side}`} role="status" aria-live="polite">
+          {seekBadge.label}
+        </div>
+      )}
     </div>
   );
-});
+}));

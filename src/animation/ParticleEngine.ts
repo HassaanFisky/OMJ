@@ -1,39 +1,58 @@
+import type { AuthoritativeEnv } from "../environment/weatherState";
 import type { Frame } from "../timeline/scenes";
+import { worldPoint } from "../timeline/scenes";
 
 const fract = (value: number) => value - Math.floor(value);
 const random = (seed: number) =>
-  fract(Math.sin(seed * 127.1) * 43758.5453);
+  fract(Math.sin(seed * 127.1 + 311.7) * 43758.5453);
+
+export interface ViewBox {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export const WINDOW_PANES = [
+  { x: 420, y: 148, width: 210, height: 414, radius: 24 },
+  { x: 650, y: 148, width: 210, height: 414, radius: 24 },
+  { x: 880, y: 148, width: 210, height: 414, radius: 24 },
+] as const;
 
 export function createParticleEngine(canvas: HTMLCanvasElement) {
   const context = canvas.getContext("2d");
-
   if (!context) {
     throw new Error("Canvas 2D rendering is unavailable.");
   }
 
   const ctx = context;
-  let width = 1;
-  let height = 1;
-  let dpr = 1;
-  let last: [Frame, number, boolean] | null = null;
+  let last: [Frame, number, boolean, ViewBox, AuthoritativeEnv] | null = null;
 
-  const mist = document.createElement("canvas");
-  mist.width = 96;
-  mist.height = 96;
-
-  const mistContext = mist.getContext("2d");
-
+  const mistCanvas = document.createElement("canvas");
+  mistCanvas.width = 96;
+  mistCanvas.height = 96;
+  const mistContext = mistCanvas.getContext("2d");
   if (mistContext) {
-    const gradient = mistContext.createRadialGradient(
-      48, 48, 0, 48, 48, 48,
-    );
-    gradient.addColorStop(0, "rgba(210,190,230,.36)");
-    gradient.addColorStop(1, "rgba(210,190,230,0)");
+    const gradient = mistContext.createRadialGradient(48, 48, 0, 48, 48, 48);
+    gradient.addColorStop(0, "rgba(210, 192, 236, 0.34)");
+    gradient.addColorStop(1, "rgba(210, 192, 236, 0)");
     mistContext.fillStyle = gradient;
     mistContext.fillRect(0, 0, 96, 96);
   }
 
-  function heart(x: number, y: number, size: number) {
+  function traceWindowPanes() {
+    ctx.beginPath();
+    for (const pane of WINDOW_PANES) {
+      ctx.roundRect(pane.x, pane.y, pane.width, pane.height, [
+        pane.radius,
+        pane.radius,
+        6,
+        6,
+      ]);
+    }
+  }
+
+  function drawHeart(x: number, y: number, size: number) {
     ctx.beginPath();
     ctx.moveTo(x, y + size * 0.3);
     ctx.bezierCurveTo(
@@ -49,219 +68,350 @@ export function createParticleEngine(canvas: HTMLCanvasElement) {
     ctx.fill();
   }
 
-  function outdoors(
+  function drawExteriorWeather(
     frame: Frame,
     time: number,
     reduced: boolean,
-    alpha: number,
+    env: AuthoritativeEnv,
   ) {
-    const env = frame.env;
+    // STRICT WINDOW APERTURE CLIP — weather stays outside the bedroom forever
+    ctx.save();
+    traceWindowPanes();
+    ctx.clip();
 
-    // Twinkling night stars & constellation stardust
-    for (let index = 0; index < 34; index++) {
-      const x = 30 + random(index + 1) * 660;
-      const y = 45 + random(index + 101) * 560;
-      const twinkle = reduced
-        ? 0.8
-        : 0.72 + Math.sin(time * 0.7 + index) * 0.2;
+    // 1. Night Stars (zero spinning 8-point polygons; suppressed strictly during day)
+    if (env.stars > 0.01) {
+      for (let i = 0; i < 48; i++) {
+        const sx = 430 + random(i + 1) * 650;
+        const sy = 158 + random(i + 101) * 290;
+        const twinkle = reduced
+          ? 0.85
+          : 0.65 + Math.sin(time * (0.9 + random(i + 50) * 0.8) + i) * 0.3;
 
-      ctx.globalAlpha = alpha * env.stars * twinkle;
-      ctx.fillStyle = index % 5 ? "#e6daee" : "#f4dfae";
+        ctx.globalAlpha = env.stars * twinkle * 0.9;
+        ctx.fillStyle = i % 6 === 0 ? "#f7e3b5" : "#ebe2f7";
 
-      if (index % 9 === 0) {
+        const r = 0.8 + random(i + 180) * 1.3;
         ctx.beginPath();
-        for (let point = 0; point < 16; point++) {
-          const angle = (point * Math.PI) / 8;
-          const radius = point % 2 ? 2.7 : 5;
-          const px = x + Math.cos(angle) * radius;
-          const py = y + Math.sin(angle) * radius;
+        ctx.arc(sx, sy, r, 0, Math.PI * 2);
+        ctx.fill();
 
-          if (!point) ctx.moveTo(px, py);
-          else ctx.lineTo(px, py);
+        // Subtle stationary 4-point sparkle cross on a few brightest stars
+        if (i % 13 === 0) {
+          ctx.strokeStyle = "rgba(255, 245, 224, 0.5)";
+          ctx.lineWidth = 0.8;
+          ctx.beginPath();
+          ctx.moveTo(sx - 4, sy);
+          ctx.lineTo(sx + 4, sy);
+          ctx.moveTo(sx, sy - 4);
+          ctx.lineTo(sx, sy + 4);
+          ctx.stroke();
         }
-        ctx.closePath();
-        ctx.fill();
-      } else {
-        ctx.beginPath();
-        ctx.arc(
-          x, y, 0.9 + random(index + 180),
-          0, Math.PI * 2,
-        );
-        ctx.fill();
       }
     }
 
-    if (reduced) return;
+    // 2. Genuine Diagonal Shooting Star Streak (rare, night sky / window scenes only)
+    if (!reduced && env.shootingStarChance > 0.1) {
+      const shouldShow =
+        frame.action === "sky" ||
+        frame.action === "window" ||
+        (frame.action === "intro" && Math.floor(time / 18) % 2 === 1);
 
-    // The Firefly Guide: A warm glowing ember that gently floats across scenes
-    if (alpha > 0.1 && (env.stars > 0.2 || env.mist > 0.1)) {
-      const flyX = 360 + Math.sin(time * 0.45) * 160 + Math.cos(time * 0.9) * 45;
-      const flyY = 620 + Math.cos(time * 0.38) * 110 + Math.sin(time * 0.75) * 35;
-      const glow = (Math.sin(time * 3.5) * 0.3 + 0.7) * alpha;
+      if (shouldShow) {
+        let p = -1;
+        if (frame.action === "sky" || frame.action === "window") {
+          // Appears cleanly once in the middle of the cue
+          p = (frame.progress - 0.18) / 0.58;
+        } else {
+          const cycle = (time % 18) / 18;
+          p = cycle < 0.08 ? cycle / 0.08 : -1;
+        }
 
-      ctx.save();
-      // Outer aura
-      ctx.globalAlpha = glow * 0.22;
-      ctx.fillStyle = "#ffdf80";
-      ctx.beginPath();
-      ctx.arc(flyX, flyY, 14, 0, Math.PI * 2);
-      ctx.fill();
+        if (p >= 0 && p <= 1) {
+          const startX = frame.action === "window" ? 1055 : 835;
+          const startY = 178;
+          const headX = startX - p * 175;
+          const headY = startY + p * 98;
+          const tailX = headX + 68;
+          const tailY = headY - 38;
+          const alpha = Math.sin(p * Math.PI);
 
-      // Core ember
-      ctx.globalAlpha = glow * 0.85;
-      ctx.fillStyle = "#fff8d6";
-      ctx.beginPath();
-      ctx.arc(flyX, flyY, 3, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
+          const grad = ctx.createLinearGradient(headX, headY, tailX, tailY);
+          grad.addColorStop(0, `rgba(255, 248, 224, ${0.95 * alpha})`);
+          grad.addColorStop(0.35, `rgba(232, 224, 255, ${0.55 * alpha})`);
+          grad.addColorStop(1, "rgba(232, 224, 255, 0)");
+
+          ctx.strokeStyle = grad;
+          ctx.lineWidth = 2.4;
+          ctx.lineCap = "round";
+          ctx.beginPath();
+          ctx.moveTo(headX, headY);
+          ctx.lineTo(tailX, tailY);
+          ctx.stroke();
+
+          ctx.globalAlpha = alpha;
+          ctx.fillStyle = "#fff9e8";
+          ctx.beginPath();
+          ctx.arc(headX, headY, 2.5, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
     }
 
-    // Atmospheric Rain
-    if (env.rain > 0.001) {
-      ctx.strokeStyle = "#d4d9eb";
-      ctx.lineWidth = 1.5;
+    // 3. Exterior Atmospheric Rain (never simultaneously active with snow)
+    if (!reduced && env.rain > 0.01) {
+      const slant = Math.min(8, 2 + env.windMs * 0.7);
+      ctx.strokeStyle = "#d6e0f5";
+      ctx.lineWidth = 1.4;
 
-      for (let index = 0; index < 46; index++) {
-        const x =
-          (random(index + 200) * 850 + time * 16) % 850 - 65;
-        const y =
-          (
-            random(index + 300) * 1220 +
-            time * (300 + (index % 9) * 16)
-          ) % 1220 - 70;
+      for (let i = 0; i < 65; i++) {
+        const rx =
+          415 + ((random(i + 200) * 690 + time * slant * 6) % 690);
+        const ry =
+          135 +
+          ((random(i + 300) * 440 + time * (320 + (i % 7) * 24)) % 440);
 
-        ctx.globalAlpha =
-          alpha * env.rain * (0.2 + random(index + 400) * 0.3);
-
+        ctx.globalAlpha = env.rain * (0.24 + random(i + 400) * 0.34);
         ctx.beginPath();
-        ctx.moveTo(x, y);
-        ctx.lineTo(x - 3, y + 18);
+        ctx.moveTo(rx, ry);
+        ctx.lineTo(rx - slant * 0.65, ry + 16);
         ctx.stroke();
       }
 
-      // Ground puddle ripples
-      ctx.save();
-      ctx.strokeStyle = "#c8d4e8";
+      // Gravity-driven droplets running down the exterior window glass
+      ctx.fillStyle = "rgba(222, 234, 255, 0.55)";
+      ctx.strokeStyle = "rgba(210, 226, 250, 0.25)";
       ctx.lineWidth = 1;
-      for (let i = 0; i < 4; i++) {
-        const rx = 180 + ((time * 45 + i * 115) % 360);
-        const ry = 948 + i * 10;
-        const progress = (time * 1.4 + i * 0.25) % 1;
-        ctx.globalAlpha = (1 - progress) * env.rain * 0.3 * alpha;
+      for (let d = 0; d < 22; d++) {
+        const dx = 432 + random(d + 450) * 645;
+        const speed = 16 + random(d + 460) * 26;
+        const dy = 152 + ((random(d + 470) * 405 + time * speed) % 405);
+        const dropAlpha = env.wetGlass * (0.35 + random(d + 480) * 0.4);
+
+        ctx.globalAlpha = dropAlpha;
         ctx.beginPath();
-        ctx.ellipse(rx, ry, progress * 14, progress * 4.5, 0, 0, Math.PI * 2);
+        ctx.moveTo(dx, dy - 11);
+        ctx.lineTo(dx, dy);
         ctx.stroke();
-      }
-      ctx.restore();
-    }
-
-    // Crystalline Snowfall
-    if (env.snow > 0.001) {
-      ctx.fillStyle = "#fff7ed";
-
-      for (let index = 0; index < 38; index++) {
-        const seed = random(index + 500);
-        const x =
-          random(index + 600) * 790 - 35 +
-          Math.sin(time * 0.5 + index) * 17;
-        const y =
-          (
-            random(index + 700) * 1170 +
-            time * (24 + seed * 22)
-          ) % 1170 - 45;
-
-        ctx.globalAlpha =
-          alpha * env.snow * (0.35 + seed * 0.4);
 
         ctx.beginPath();
-        ctx.arc(x, y, 1.6 + seed * 2.5, 0, Math.PI * 2);
+        ctx.ellipse(dx, dy, 1.8, 2.8, 0, 0, Math.PI * 2);
         ctx.fill();
       }
     }
 
-    // Rolling Environmental Mist
-    if (env.mist > 0.001) {
-      for (let index = 0; index < 5; index++) {
-        const x =
-          (random(index + 800) * 1000 + time * 9) % 1000 - 140;
-        const y = 840 + Math.sin(time * 0.3 + index) * 24;
+    // 4. Exterior Natural Snowfall (varied sizes, gentle drift, strictly outside)
+    if (!reduced && env.snow > 0.01) {
+      ctx.fillStyle = "#f7f3ee";
+      for (let i = 0; i < 58; i++) {
+        const seed = random(i + 500);
+        const sx =
+          418 +
+          ((random(i + 600) * 685 + Math.sin(time * 0.55 + i) * 16) % 685);
+        const sy =
+          140 + ((random(i + 700) * 435 + time * (22 + seed * 24)) % 435);
 
-        ctx.globalAlpha = alpha * env.mist * 0.35;
-        ctx.drawImage(mist, x, y, 230, 120);
+        ctx.globalAlpha = env.snow * (0.38 + seed * 0.45);
+        ctx.beginPath();
+        ctx.arc(sx, sy, 1.4 + seed * 2.5, 0, Math.PI * 2);
+        ctx.fill();
       }
     }
+
+    // 5. Exterior Rolling Mist (strictly outside window panes)
+    if (!reduced && env.mist > 0.01) {
+      for (let i = 0; i < 6; i++) {
+        const mx =
+          380 + ((random(i + 800) * 740 + time * 10) % 740) - 90;
+        const my = 420 + Math.sin(time * 0.35 + i) * 18;
+        ctx.globalAlpha = env.mist * 0.42;
+        ctx.drawImage(mistCanvas, mx, my, 210, 105);
+      }
+    }
+
+    // 6. Winter Glass Edge Frost & Subtle Condensation (Cue 22 & Snow)
+    if (env.frost > 0.02) {
+      for (const pane of WINDOW_PANES) {
+        const frostGrad = ctx.createRadialGradient(
+          pane.x + pane.width / 2,
+          pane.y + pane.height / 2,
+          pane.width * 0.25,
+          pane.x + pane.width / 2,
+          pane.y + pane.height / 2,
+          pane.height * 0.62,
+        );
+        frostGrad.addColorStop(0, "rgba(225, 238, 255, 0)");
+        frostGrad.addColorStop(0.75, `rgba(218, 234, 252, ${env.frost * 0.14})`);
+        frostGrad.addColorStop(1, `rgba(232, 244, 255, ${env.frost * 0.42})`);
+        ctx.fillStyle = frostGrad;
+        ctx.globalAlpha = 1;
+        ctx.fillRect(pane.x, pane.y, pane.width, pane.height);
+      }
+    }
+
+    ctx.restore();
   }
 
-  function draw(frame: Frame, time: number, reduced: boolean) {
-    last = [frame, time, reduced];
+  function drawInteriorDetails(
+    frame: Frame,
+    time: number,
+    reduced: boolean,
+    env: AuthoritativeEnv,
+  ) {
+    // 1. Gentle Interior Floating Hearts (romantic scenes only)
+    if (!reduced && frame.env.hearts > 0.01) {
+      const center = (frame.a.x + frame.b.x) / 2;
+      for (let i = 0; i < 14; i++) {
+        const hx =
+          center - 220 + random(i + 900) * 440 + Math.sin(time * 0.65 + i) * 14;
+        const hy =
+          940 - ((random(i + 950) * 480 + time * (20 + (i % 4) * 5)) % 480);
+
+        ctx.globalAlpha =
+          frame.env.hearts * (0.22 + random(i + 990) * 0.28);
+        ctx.fillStyle = i % 2 === 0 ? "#e6aac0" : "#ccb2de";
+        drawHeart(hx, hy, 4.5 + random(i + 1020) * 4.5);
+      }
+    }
+
+    // 2. Romantic Paper Petals (Cue 14 "Yun na sata")
+    if (!reduced && frame.env.petals > 0.01) {
+      const center = (frame.a.x + frame.b.x) / 2;
+      for (let i = 0; i < 16; i++) {
+        const px =
+          center - 240 + random(i + 1100) * 480 + Math.sin(time * 1.1 + i) * 24;
+        const py =
+          450 + ((random(i + 1150) * 500 + time * (32 + (i % 5) * 6)) % 500);
+        const rot = time * 1.3 + i * 0.7;
+
+        ctx.save();
+        ctx.translate(px, py);
+        ctx.rotate(rot);
+        ctx.globalAlpha = frame.env.petals * 0.68;
+        ctx.fillStyle = i % 2 === 0 ? "#f3c7d6" : "#f8e2e8";
+        ctx.beginPath();
+        ctx.ellipse(0, 0, 5.5, 3.2, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+    }
+
+    // 3. Occasional Firefly Guide (Cue 37 subtle warm detail)
+    if (!reduced && frame.env.firefly > 0.05) {
+      const fx = 980 + Math.sin(time * 0.8) * 125;
+      const fy = 520 + Math.cos(time * 0.65) * 70;
+      const glow = (Math.sin(time * 3.8) * 0.28 + 0.72) * frame.env.firefly;
+
+      ctx.save();
+      ctx.globalAlpha = glow * 0.26;
+      ctx.fillStyle = "#ffe088";
+      ctx.beginPath();
+      ctx.arc(fx, fy, 15, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.globalAlpha = glow * 0.9;
+      ctx.fillStyle = "#fff9dc";
+      ctx.beginPath();
+      ctx.arc(fx, fy, 2.8, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    // 4. Restrained Cigarette Smoke Wisp (Cue 21 ONLY)
+    if (!reduced && frame.env.cigarette > 0.05) {
+      const tip = worldPoint(frame.a, frame.a.rightX + 18, frame.a.rightY - 12);
+      ctx.save();
+      ctx.strokeStyle = "rgba(220, 214, 232, 0.35)";
+      ctx.lineWidth = 1.6;
+      ctx.lineCap = "round";
+      for (let w = 0; w < 3; w++) {
+        const rise = ((time * 0.45 + w * 0.33) % 1);
+        const sx = tip.x + Math.sin(time * 2.1 + w * 2) * (4 + rise * 10);
+        const sy = tip.y - rise * 48;
+        ctx.globalAlpha = frame.env.cigarette * (1 - rise) * 0.42;
+        ctx.beginPath();
+        ctx.arc(sx, sy, 2.2 + rise * 4.5, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    void env;
+  }
+
+  function drawSnowGlobeSnow(
+    time: number,
+    reduced: boolean,
+    globeReveal: number,
+    viewBox: ViewBox,
+  ) {
+    if (reduced || globeReveal <= 0.02) return;
+    // Globe sits centered on current viewBox during tail pull-back
+    const cx = viewBox.x + viewBox.width / 2;
+    const cy = viewBox.y + viewBox.height * 0.48;
+    const r = Math.min(viewBox.width, viewBox.height) * 0.34;
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.clip();
+
+    ctx.fillStyle = "#fff7ef";
+    for (let i = 0; i < 48; i++) {
+      const seed = random(i + 1300);
+      const sx =
+        cx - r + ((random(i + 1400) * r * 2 + Math.sin(time * 0.6 + i) * 14) % (r * 2));
+      const sy =
+        cy - r + ((random(i + 1500) * r * 2 + time * (26 + seed * 22)) % (r * 2));
+
+      ctx.globalAlpha = globeReveal * (0.35 + seed * 0.45);
+      ctx.beginPath();
+      ctx.arc(sx, sy, 1.5 + seed * 2.2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  function draw(
+    frame: Frame,
+    time: number,
+    reduced: boolean,
+    viewBox: ViewBox,
+    env: AuthoritativeEnv,
+  ) {
+    last = [frame, time, reduced, viewBox, env];
 
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    const scale = Math.min(width / 720, height / 1080);
-    const offsetX = (width - scale * 720) / 2;
-    const offsetY = (height - scale * 1080) / 2;
+    const scaleX = canvas.width / Math.max(1, viewBox.width);
+    const scaleY = canvas.height / Math.max(1, viewBox.height);
 
     ctx.setTransform(
-      scale * dpr, 0, 0, scale * dpr,
-      offsetX * dpr, offsetY * dpr,
+      scaleX, 0, 0, scaleY,
+      -viewBox.x * scaleX, -viewBox.y * scaleY,
     );
 
-    const room = Math.max(0, Math.min(1, frame.env.room));
+    drawExteriorWeather(frame, time, reduced, env);
+    drawInteriorDetails(frame, time, reduced, env);
 
-    if (room < 0.999) {
-      outdoors(frame, time, reduced, 1 - room);
-    }
-
-    if (room > 0.001) {
-      ctx.save();
-      ctx.beginPath();
-      ctx.roundRect(
-        185,
-        145 + frame.env.windowY,
-        350,
-        445,
-        104,
-      );
-      ctx.clip();
-      outdoors(frame, time, reduced, room);
-      ctx.restore();
-    }
-
-    // Multiplane Floating Hearts with Depth Layering
-    if (!reduced && frame.env.hearts > 0.001) {
-      for (let index = 0; index < 18; index++) {
-        const x =
-          70 + random(index + 900) * 580 +
-          Math.sin(time * 0.6 + index) * 12;
-        const y =
-          (
-            random(index + 950) * 1120 +
-            time * (22 + (index % 4) * 5)
-          ) % 1120 - 20;
-
-        if (y > 525 && y < 655) continue;
-
-        ctx.globalAlpha =
-          frame.env.hearts *
-          (0.25 + random(index + 990) * 0.3);
-        ctx.fillStyle = index % 2 ? "#e5afc2" : "#cab2db";
-
-        heart(x, y, 5 + random(index + 1020) * 5);
-      }
-    }
+    const globeReveal =
+      frame.action === "tail"
+        ? Math.min(1, Math.max(0, (0.94 - frame.env.zoom) / 0.25))
+        : 0;
+    drawSnowGlobeSnow(time, reduced, globeReveal, viewBox);
 
     ctx.globalAlpha = 1;
   }
 
   function resize() {
     const bounds = canvas.getBoundingClientRect();
-    width = Math.max(1, bounds.width);
-    height = Math.max(1, bounds.height);
-    dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+    const w = Math.max(1, bounds.width);
+    const h = Math.max(1, bounds.height);
+    const dpr = Math.min(window.devicePixelRatio || 1, 1.75);
 
-    canvas.width = Math.round(width * dpr);
-    canvas.height = Math.round(height * dpr);
+    canvas.width = Math.round(w * dpr);
+    canvas.height = Math.round(h * dpr);
 
     if (last) draw(...last);
   }

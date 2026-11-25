@@ -285,6 +285,19 @@ export function TimingEditor({
           </li>
         ))}
       </ol>
+
+      <footer className="transcript-footer">
+        <p>
+          Opening sky reflects approximate local time and conditions where available.{" "}
+          <a
+            href="https://open-meteo.com/"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Weather data by Open-Meteo.com
+          </a>
+        </p>
+      </footer>
     </dialog>
   );
 }

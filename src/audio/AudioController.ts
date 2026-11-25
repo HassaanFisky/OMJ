@@ -429,4 +429,13 @@ export class AudioController {
     this.audio.muted = !this.audio.muted;
     this.publish({ muted: this.audio.muted });
   };
+
+  setRate = (rate: number) => {
+    if (!this.audio) return;
+    this.audio.playbackRate = rate;
+  };
+
+  getRate = () => {
+    return this.audio?.playbackRate ?? 1.0;
+  };
 }

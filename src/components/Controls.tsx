@@ -1,15 +1,17 @@
 import {
   useEffect,
   useRef,
+  useState,
   type ChangeEvent,
 } from "react";
 import type { AudioController, PlaybackSnapshot } from "../audio/AudioController";
-import { formatTime } from "../timeline/score";
+
+export const SPEED_PRESETS = [0.5, 0.75, 1, 1.25, 1.5, 2] as const;
 
 export function Icon({
   name,
 }: {
-  name: "play" | "pause" | "replay" | "close" | "sound" | "mute";
+  name: "play" | "pause" | "replay" | "close" | "sound" | "mute" | "menu" | "orbit";
 }) {
   return (
     <svg
@@ -41,6 +43,15 @@ export function Icon({
             : <path d="M17 8q5 4 0 8M19 5q8 7 0 14" />}
         </>
       )}
+      {name === "menu" && (
+        <path d="M4 7h16M4 12h16M4 17h10" />
+      )}
+      {name === "orbit" && (
+        <>
+          <path d="M3 12a9 3.5 0 1 0 18 0a9 3.5 0 1 0-18 0" />
+          <path d="M12 3v18" opacity="0.45" />
+        </>
+      )}
     </svg>
   );
 }
@@ -60,26 +71,32 @@ export function IntroScreen({
   onFile(event: ChangeEvent<HTMLInputElement>): void;
   onTranscript(): void;
 }) {
+  const isEnded = snapshot.status === "ended";
+
   return (
     <section className="entrance" aria-labelledby="omj-title">
-      <h1 id="omj-title" className="sr-only">OMJ</h1>
+      {/* SINGLE visible OMJ identity mark at the center of the entrance */}
+      <div className="entrance-crest">
+        <h1 id="omj-title" className="entrance-monogram">
+          OMJ
+        </h1>
+        <span className="entrance-divider" aria-hidden="true" />
+      </div>
 
-      {/* Mysterious, minimalist floating trigger pill over live animated world */}
+      {/* Minimalist floating play trigger */}
       <div className="entrance-trigger-wrap">
         <button
           className="primary-button trigger-pill"
           disabled={!ready}
           onClick={onPlay}
-          aria-label={snapshot.status === "ended" ? "REPLAY OMJ" : "PLAY OMJ"}
+          aria-label={isEnded ? "REPLAY OMJ" : "PLAY OMJ"}
         >
-          <span className="trigger-monogram">OMJ</span>
-          <span className="trigger-dot" aria-hidden="true">✦</span>
-          <Icon name="play" />
-          <span>{snapshot.status === "ended" ? "REPLAY OMJ" : "PLAY OMJ"}</span>
+          <Icon name={isEnded ? "replay" : "play"} />
+          <span>{isEnded ? "Replay" : "Begin"}</span>
         </button>
       </div>
 
-      {/* Discreet corner controls: clean, non-intrusive icon buttons */}
+      {/* Discreet corner controls */}
       <div className="entrance-corner-tools">
         <label className="corner-icon-button file-control" title="Choose or change audio file">
           <span className="corner-icon-text" aria-hidden="true">♫</span>
@@ -109,9 +126,126 @@ export function IntroScreen({
 }
 
 /**
- * Discreet Cinematic Controls
- * Replaces the conventional heavy music-player seekbar/dashboard with an unobtrusive,
- * floating glass pill meeting WCAG 44x44px touch targets.
+ * Top-Left Compact Pin-Up Speed & Cinema Popover
+ * Never covers the full viewport or blocks Mochi and Yume.
+ */
+export function PinUpMenu({
+  snapshot,
+  ready,
+  active,
+  playbackRate,
+  captionsVisible,
+  onPlay,
+  onPause,
+  onReplay,
+  onToggleMute,
+  onRateChange,
+  onToggleCaptions,
+  onResetOrbit,
+}: {
+  snapshot: PlaybackSnapshot;
+  ready: boolean;
+  active: boolean;
+  playbackRate: number;
+  captionsVisible: boolean;
+  onPlay(): void;
+  onPause(): void;
+  onReplay(): void;
+  onToggleMute(): void;
+  onRateChange(rate: number): void;
+  onToggleCaptions(): void;
+  onResetOrbit(): void;
+}) {
+  const [open, setOpen] = useState(false);
+  const playing = snapshot.status === "playing";
+
+  return (
+    <div className="pinup-wrap">
+      <button
+        type="button"
+        className="pinup-trigger"
+        onClick={() => setOpen((v) => !v)}
+        aria-label="Playback menu"
+        aria-expanded={open}
+      >
+        <Icon name={open ? "close" : "menu"} />
+        <span className="pinup-rate-tag">{playbackRate}x</span>
+      </button>
+
+      {open && (
+        <div className="pinup-card" role="dialog" aria-label="Cinema controls">
+          <div className="pinup-section-label">Speed</div>
+          <div className="speed-pills" role="group" aria-label="Playback speed">
+            {SPEED_PRESETS.map((rate) => (
+              <button
+                key={rate}
+                type="button"
+                className="speed-pill"
+                data-active={playbackRate === rate ? "true" : "false"}
+                onClick={() => onRateChange(rate)}
+              >
+                {rate}x
+              </button>
+            ))}
+          </div>
+
+          <div className="pinup-actions">
+            <button
+              type="button"
+              className="pinup-action-btn"
+              disabled={!ready}
+              onClick={() => (playing ? onPause() : onPlay())}
+            >
+              <Icon name={playing ? "pause" : "play"} />
+              <span>{playing ? "Pause" : active ? "Resume" : "Play"}</span>
+            </button>
+
+            <button
+              type="button"
+              className="pinup-action-btn"
+              disabled={!ready}
+              onClick={onReplay}
+            >
+              <Icon name="replay" />
+              <span>Replay</span>
+            </button>
+
+            <button
+              type="button"
+              className="pinup-action-btn"
+              onClick={onToggleMute}
+            >
+              <Icon name={snapshot.muted ? "mute" : "sound"} />
+              <span>{snapshot.muted ? "Unmute" : "Mute"}</span>
+            </button>
+
+            <button
+              type="button"
+              className="pinup-action-btn"
+              onClick={onToggleCaptions}
+              aria-pressed={captionsVisible}
+            >
+              <span className="control-text-icon">Aa</span>
+              <span>{captionsVisible ? "Hide Lyrics" : "Show Lyrics"}</span>
+            </button>
+
+            <button
+              type="button"
+              className="pinup-action-btn"
+              onClick={onResetOrbit}
+            >
+              <Icon name="orbit" />
+              <span>Reset 360° View</span>
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Discreet Minimal Cinema Controls
  */
 export function AudioPlayer({
   controller,

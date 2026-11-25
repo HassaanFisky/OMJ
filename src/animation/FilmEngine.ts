@@ -103,7 +103,6 @@ export class FilmEngine {
 
     if (reduced) {
       frame.env.zoom = 1;
-      frame.env.camX = 0;
       frame.env.camY = 0;
 
       if (shot.action === "tail") {
@@ -113,21 +112,21 @@ export class FilmEngine {
 
     if (!reduced) {
       for (const pose of [frame.a, frame.b]) {
-        const gait = Math.sin(time * 7.5);
+        const gait = Math.sin(time * 6.5);
         const fidget = Math.sin(time * 10) * pose.nervous;
 
-        pose.y -= Math.abs(gait) * pose.walk * 2.3;
-        pose.leftY += fidget * 4;
-        pose.rightY -= fidget * 4;
-        pose.head += fidget * 1.8;
+        // Subtle walk hip-bob (only during active walk)
+        pose.y -= Math.abs(gait) * pose.walk * 2.1;
+        pose.leftY += fidget * 3.5;
+        pose.rightY -= fidget * 3.5;
+        pose.head += fidget * 1.6;
       }
     }
 
     const hold = frame.env.hold;
-
     if (hold > 0) {
       const x = (frame.a.x + frame.b.x) / 2;
-      const y = Math.min(frame.a.y, frame.b.y) - 43;
+      const y = Math.min(frame.a.y, frame.b.y) - 44;
 
       attachHand(frame.a, "right", x, y, hold);
       attachHand(frame.b, "left", x, y, hold);
@@ -137,16 +136,16 @@ export class FilmEngine {
       attachHand(
         frame.a,
         "right",
-        frame.b.x - 20,
-        frame.b.y - 55,
+        frame.b.x - 16,
+        frame.b.y - 54,
         frame.env.hug,
       );
 
       attachHand(
         frame.b,
         "left",
-        frame.a.x + 20,
-        frame.a.y - 50,
+        frame.a.x + 16,
+        frame.a.y - 52,
         frame.env.hug,
       );
     }

@@ -23,27 +23,34 @@ export default defineConfig({
       },
     },
     {
-      name: "mobile-webkit-393",
+      name: "desktop-1080p",
       use: {
-        browserName: "webkit",
-        viewport: { width: 393, height: 852 },
-        isMobile: true,
-        hasTouch: true,
+        browserName: "chromium",
+        viewport: { width: 1920, height: 1080 },
       },
     },
     {
-      name: "mobile-webkit-390",
+      name: "mobile-390",
       use: {
-        browserName: "webkit",
+        browserName: "chromium",
         viewport: { width: 390, height: 844 },
         isMobile: true,
         hasTouch: true,
       },
     },
     {
-      name: "mobile-webkit-430",
+      name: "mobile-393",
       use: {
-        browserName: "webkit",
+        browserName: "chromium",
+        viewport: { width: 393, height: 852 },
+        isMobile: true,
+        hasTouch: true,
+      },
+    },
+    {
+      name: "mobile-430",
+      use: {
+        browserName: "chromium",
         viewport: { width: 430, height: 932 },
         isMobile: true,
         hasTouch: true,

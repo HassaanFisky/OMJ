@@ -1,14 +1,20 @@
 import {
   useEffect,
+  useRef,
   useState,
   useSyncExternalStore,
   type ChangeEvent,
   type KeyboardEvent,
 } from "react";
 import { AudioController } from "./audio/AudioController";
-import { CinematicStage } from "./components/CinematicStage";
-import { AudioPlayer, Icon, IntroScreen } from "./components/Controls";
+import { CinematicStage, type StageHandle } from "./components/CinematicStage";
+import { AudioPlayer, Icon, IntroScreen, PinUpMenu } from "./components/Controls";
 import { TimingEditor } from "./components/TimingEditor";
+import {
+  fallbackOpeningContext,
+  fetchLiveOpeningContext,
+} from "./environment/liveContext";
+import type { LiveOpeningContext } from "./environment/weatherState";
 import {
   initialScore,
   validateScore,
@@ -17,6 +23,7 @@ import {
 
 export default function App() {
   const [controller] = useState(() => new AudioController());
+  const stageRef = useRef<StageHandle>(null);
 
   const snapshot = useSyncExternalStore(
     controller.subscribe,
@@ -30,6 +37,11 @@ export default function App() {
   const [active, setActive] = useState(false);
   const [textOpen, setTextOpen] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [captionsVisible, setCaptionsVisible] = useState(true);
+  const [playbackRate, setPlaybackRate] = useState(1);
+  const [openingContext, setOpeningContext] = useState<LiveOpeningContext>(
+    () => fallbackOpeningContext(),
+  );
 
   const errors = validateScore(
     score,
@@ -57,15 +69,33 @@ export default function App() {
   }, [controller]);
 
   useEffect(() => {
+    let cancelled = false;
+    void fetchLiveOpeningContext().then((ctx) => {
+      if (!cancelled) {
+        setOpeningContext(ctx);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
     if (snapshot.status === "ended") {
       setActive(false);
     }
   }, [snapshot.status]);
 
+  function handleRateChange(rate: number) {
+    setPlaybackRate(rate);
+    controller.setRate(rate);
+  }
+
   async function begin() {
     if (!ready) return;
 
     if (snapshot.status === "ended") controller.seek(0);
+    controller.setRate(playbackRate);
 
     if (await controller.play()) {
       setActive(true);
@@ -75,6 +105,7 @@ export default function App() {
   async function replay() {
     controller.pause();
     controller.seek(0);
+    controller.setRate(playbackRate);
 
     if (ready && await controller.play()) {
       setActive(true);
@@ -107,25 +138,39 @@ export default function App() {
   function keyboard(event: KeyboardEvent<HTMLElement>) {
     if (textOpen) return;
 
-    const target = event.target as HTMLElement;
+    const target = event.target as HTMLElement | null;
+    if (target?.closest("input,button,a,textarea,select,[contenteditable='true']")) {
+      return;
+    }
 
-    if (target.closest("input,button,a,textarea,select")) return;
+    if (
+      (event.key === "c" || event.key === "C") &&
+      !event.ctrlKey &&
+      !event.metaKey &&
+      !event.altKey
+    ) {
+      event.preventDefault();
+      setCaptionsVisible((prev) => !prev);
+      return;
+    }
+
+    if (event.key === "ArrowLeft") {
+      event.preventDefault();
+      controller.seek(controller.getSnapshot().time - 5);
+      return;
+    }
+
+    if (event.key === "ArrowRight") {
+      event.preventDefault();
+      controller.seek(controller.getSnapshot().time + 5);
+      return;
+    }
 
     if (event.code === "Space") {
       event.preventDefault();
 
       if (snapshot.status === "playing") controller.pause();
       else void begin();
-    }
-
-    if (event.key === "ArrowLeft") {
-      event.preventDefault();
-      controller.seek(snapshot.time - 5);
-    }
-
-    if (event.key === "ArrowRight") {
-      event.preventDefault();
-      controller.seek(snapshot.time + 5);
     }
 
     if (event.key === "Escape") controller.pause();
@@ -143,20 +188,31 @@ export default function App() {
       <audio id="omj-audio" preload="metadata" />
 
       <CinematicStage
+        ref={stageRef}
         controller={controller}
         score={score}
         duration={snapshot.duration}
         active={active}
+        captionsVisible={captionsVisible}
+        openingContext={openingContext}
+        playbackRate={playbackRate}
       />
 
       <header className="topbar">
-        <button
-          className="wordmark"
-          onClick={closeExperience}
-          aria-label="Return to the OMJ entrance"
-        >
-          OMJ<span />
-        </button>
+        <PinUpMenu
+          snapshot={snapshot}
+          ready={ready}
+          active={active}
+          playbackRate={playbackRate}
+          captionsVisible={captionsVisible}
+          onPlay={() => void begin()}
+          onPause={controller.pause}
+          onReplay={() => void replay()}
+          onToggleMute={controller.toggleMute}
+          onRateChange={handleRateChange}
+          onToggleCaptions={() => setCaptionsVisible((prev) => !prev)}
+          onResetOrbit={() => stageRef.current?.resetOrbit()}
+        />
 
         <div className="top-actions">
           {import.meta.env.DEV && (
