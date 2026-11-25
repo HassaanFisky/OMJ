@@ -62,6 +62,10 @@ type JointName =
   | "closedEyes"
   | "leftBrow"
   | "rightBrow"
+  | "leftEar"
+  | "rightEar"
+  | "leftEarInner"
+  | "rightEarInner"
   | "mouth"
   | "tears"
   | "backHead"
@@ -93,7 +97,7 @@ export function createBearPainter(root: SVGGElement) {
   const jointNames: JointName[] = [
     "torso", "head", "face",
     "eyes", "eyelids", "closedEyes",
-    "leftBrow", "rightBrow", "mouth", "tears",
+    "leftBrow", "rightBrow", "leftEar", "rightEar", "leftEarInner", "rightEarInner", "mouth", "tears",
     "backHead", "belly", "tailPuff", "warm",
     "leftArm", "rightArm", "leftForearm", "rightForearm",
     "leftHand", "rightHand",
@@ -300,6 +304,21 @@ export function createBearPainter(root: SVGGElement) {
       `translate(${(-sinYaw * 16).toFixed(2)} 0) scale(${clamp(0.55 + 0.45 * Math.abs(cosYaw), 0.55, 1).toFixed(3)} 1)`,
     );
     nodes.backHead.setAttribute("opacity", String(backOpacity));
+
+    // Rounded teddy bear ears: shift naturally with 360-degree yaw & hide inner cup in rear view
+    const earShiftX = -sinYaw * 12;
+    const earScaleL = clamp(0.72 + 0.28 * cosYaw - sinYaw * 0.14, 0.52, 1.05);
+    const earScaleR = clamp(0.72 + 0.28 * cosYaw + sinYaw * 0.14, 0.52, 1.05);
+    nodes.leftEar.setAttribute(
+      "transform",
+      `translate(${(-46 + earShiftX).toFixed(2)} -194) rotate(-22) scale(${earScaleL.toFixed(3)} 1)`,
+    );
+    nodes.rightEar.setAttribute(
+      "transform",
+      `translate(${(46 + earShiftX).toFixed(2)} -194) rotate(22) scale(${earScaleR.toFixed(3)} 1)`,
+    );
+    nodes.leftEarInner.setAttribute("opacity", String((frontOpacity * 0.92).toFixed(3)));
+    nodes.rightEarInner.setAttribute("opacity", String((frontOpacity * 0.92).toFixed(3)));
 
     // Rounded tail puff visible in profile & rear views
     const tailOpacity = clamp(Math.max(backOpacity, (Math.abs(sinYaw) - 0.35) * 1.5), 0, 1);

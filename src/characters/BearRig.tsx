@@ -5,7 +5,7 @@
  * Character B ("Yume")  = Female plush bear (pastel lilac-lavender 3D shading, bare neck, eyelashes, pink satin ribbon bow)
  *
  * Design invariants:
- * - 100% earless smooth dome head across front, 3/4, profile, and back views
+ * - Soft, plush, rounded semicircular 3D teddy bear ears across front, 3/4, profile, and back views
  * - Zero dashed stitch seams, zero forehead/cheek wrinkles or dots
  * - Seamless capsule limbs with joint-crease ambient occlusion
  * - Exact left/right paw chirality: thumbs ALWAYS point inward toward body centerline
@@ -25,6 +25,7 @@ export function BearRig({
   const furMid    = isA ? "#c98b50" : "#c8a6e0";
   const furShadow = isA ? "#9b622e" : "#9d77ba";
   const furDeep   = isA ? "#7a491d" : "#765196";
+  const earInner  = isA ? "#f2cfa8" : "#f5e6fa";
   const patch     = isA ? "#f6dec2" : "#f7eefa";
   const blushCol  = isA ? "#e08e79" : "#e88fb8";
   const noseCol   = "#341e19";
@@ -328,9 +329,50 @@ export function BearRig({
         );
       })}
 
-      {/* ── 100% EARLESS SMOOTH DOME HEAD & EXPRESSIVE FACE ──────────────── */}
+      {/* ── ROUNDED 3D TEDDY BEAR HEAD, EARS & EXPRESSIVE FACE ────────────── */}
       <g data-joint="head">
-        {/* Pure smooth spherical/dome silhouette — ZERO ears, ZERO nubs, ZERO notches */}
+        {/* Soft, plush, rounded semicircular 3D teddy bear ears */}
+        {(["left", "right"] as const).map((side) => {
+          const sign = side === "left" ? -1 : 1;
+          return (
+            <g
+              key={side}
+              data-joint={`${side}Ear`}
+              transform={`translate(${sign * 46} -194) rotate(${sign * 22})`}
+            >
+              <circle
+                cx="0"
+                cy="0"
+                r="22"
+                fill={`url(#${gradHeadId})`}
+                stroke={furShadow}
+                strokeOpacity="0.75"
+                strokeWidth="1.4"
+              />
+              {/* Soft ambient-occlusion shadow where ear meets head */}
+              <ellipse
+                cx={-sign * 5}
+                cy="11"
+                rx="13"
+                ry="6.5"
+                fill={furDeep}
+                opacity="0.22"
+              />
+              {/* Recessed inner ear cup (fades in rear view) */}
+              <ellipse
+                data-joint={`${side}EarInner`}
+                cx={-sign * 1}
+                cy="1"
+                rx="12.5"
+                ry="12"
+                fill={earInner}
+                opacity="0.92"
+              />
+            </g>
+          );
+        })}
+
+        {/* Smooth spherical/dome head */}
         <ellipse
           cy="-152"
           rx="63"

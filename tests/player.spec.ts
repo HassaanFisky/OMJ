@@ -233,19 +233,22 @@ test("provides a complete transcript", async ({ page }) => {
   await expect(page.locator(".transcript-list > li")).toHaveCount(43);
 });
 
-test("supports top-left pin-up speed popover, arrow seek, earless rigs, and window footstools", async ({ page }) => {
+test("supports top-left pin-up speed popover, arrow seek, rounded teddy ears, and window footstools", async ({ page }) => {
   await loadAudio(page);
 
-  // Verify earless smooth dome rigs have zero dashed stitch lines
-  const bearDashCount = await page.evaluate(() => {
+  // Verify rounded teddy bear ears are present and zero dashed stitch lines exist
+  const { bearDashCount, earCount } = await page.evaluate(() => {
     const bears = document.querySelectorAll('[data-bear="a"], [data-bear="b"]');
-    let count = 0;
+    let dash = 0;
+    let ears = 0;
     bears.forEach((b) => {
-      count += b.querySelectorAll('[stroke-dasharray]').length;
+      dash += b.querySelectorAll('[stroke-dasharray]').length;
+      ears += b.querySelectorAll('[data-joint="leftEar"], [data-joint="rightEar"]').length;
     });
-    return count;
+    return { bearDashCount: dash, earCount: ears };
   });
   expect(bearDashCount).toBe(0);
+  expect(earCount).toBe(4);
 
   // Open top-left compact pin-up popover and verify speed presets
   await page.getByRole("button", { name: "Playback menu", exact: true }).click();
