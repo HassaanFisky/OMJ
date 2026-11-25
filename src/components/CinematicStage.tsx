@@ -26,6 +26,11 @@ import {
   type Frame,
 } from "../timeline/scenes";
 import { validateScore, type Score } from "../timeline/score";
+import {
+  buildModernBedroomQuads,
+  createCamera3D,
+  projectQuad,
+} from "../stage/Room3D";
 import { LyricsDisplay, type LyricsHandle, type SafeBox } from "./LyricsDisplay";
 
 function useReducedMotion() {
@@ -269,14 +274,45 @@ export const CinematicStage = memo(forwardRef<StageHandle, StageProps>(function 
       nodes.cloudB!.setAttribute("transform", `translate(${-drift * 0.7} 0)`);
       nodes.cloudC!.setAttribute("transform", `translate(${drift * 0.5} 0)`);
 
-      // Subtle parallax offset on distant exterior sky & room depth with 360 orbit
+      // True 360-degree 3D bedroom projection (all 4 walls, floor, ceiling, furniture)
+      const room3dNode = backSvg.querySelector<SVGGElement>('[data-node="room3d"]');
+      const orbitActive = Math.abs(yaw) > 0.5 || Math.abs(orbitRef.current.pitch) > 0.5;
+      if (room3dNode) {
+        if (orbitActive) {
+          const cam3d = createCamera3D(
+            yaw,
+            orbitRef.current.pitch,
+            vb.x + vb.width / 2,
+            vb.y + vb.height / 2,
+          );
+          const quads = buildModernBedroomQuads()
+            .map((q) => ({ q, p: projectQuad(q, cam3d) }))
+            .filter((item) => item.p.visible)
+            .sort((a, b) => b.p.depth - a.p.depth);
+
+          room3dNode.innerHTML = quads
+            .map(
+              ({ q, p }) =>
+                `<path d="${p.d}" fill="${q.fill}" stroke="${q.stroke ?? "none"}" stroke-width="${q.strokeWidth ?? 1}" opacity="${q.opacity ?? 1}" />`,
+            )
+            .join("");
+          room3dNode.setAttribute("opacity", String(clamp(Math.abs(yaw) / 14 + Math.abs(orbitRef.current.pitch) / 6, 0, 1)));
+        } else {
+          room3dNode.setAttribute("opacity", "0");
+        }
+      }
+
+      // Subtle parallax offset on distant exterior sky & 3D perspective on North room wall
       const skyParallax = (vb.x - 100) * 0.08 - Math.sin(yawRad) * 95;
       nodes.sun!.setAttribute("transform", `translate(${skyParallax} 0)`);
       nodes.moon!.setAttribute("transform", `translate(${skyParallax} 0)`);
+      const northScaleX = clamp(Math.cos(yawRad), 0.12, 1);
+      const northOpacity = clamp(Math.cos(yawRad) * 1.35 + 0.15, 0, 1);
       nodes.room!.setAttribute(
         "transform",
-        `translate(${(-Math.sin(yawRad) * 42).toFixed(1)} ${(orbitRef.current.pitch * 1.4).toFixed(1)})`,
+        `translate(${(-Math.sin(yawRad) * 520).toFixed(1)} ${(orbitRef.current.pitch * 3.5).toFixed(1)}) scale(${northScaleX.toFixed(3)} 1)`,
       );
+      nodes.room!.setAttribute("opacity", String(Math.max(0.92, env.room) * northOpacity));
 
       // ── Props & Hand Contacts ─────────────────────────────────────────────
       setOpacity("message", env.message);
@@ -794,6 +830,7 @@ export const CinematicStage = memo(forwardRef<StageHandle, StageProps>(function 
           />
 
           {/* Bedroom Back Wall + Wainscoting + Perspective Wooden Floor */}
+          <g data-node="room3d" opacity="0" />
           <g data-node="room">
             <g mask="url(#room-cutout)">
               <rect x="-1200" y="-600" width="4600" height="1435" fill="#362c45" />

@@ -290,4 +290,16 @@ test("supports top-left pin-up speed popover, arrow seek, rounded teddy ears, an
   await expect(page.locator(".cinematic-stage")).toHaveAttribute("data-action", "window");
   expect(Number(await page.locator('[data-node="stoolA"]').getAttribute("opacity"))).toBeGreaterThan(0.8);
   expect(Number(await page.locator('[data-node="stoolB"]').getAttribute("opacity"))).toBeGreaterThan(0.8);
+
+  // Drag horizontally to orbit the 3D room and verify 3D walls/furniture render
+  const stageBox = await page.locator(".cinematic-stage").boundingBox();
+  expect(stageBox).not.toBeNull();
+  const cx = stageBox!.x + stageBox!.width * 0.5;
+  const cy = stageBox!.y + stageBox!.height * 0.5;
+  await page.mouse.move(cx, cy);
+  await page.mouse.down();
+  await page.mouse.move(cx + 160, cy, { steps: 6 });
+  await expect(page.locator('[data-node="room3d"] path').first()).toBeAttached();
+  expect(Number(await page.locator('[data-node="room3d"]').getAttribute("opacity"))).toBeGreaterThan(0.5);
+  await page.mouse.up();
 });
