@@ -1,7 +1,15 @@
 node_modules/
 dist/
 playwright-report/
+# Bundled jsdom harness output (see tests/dom/vite.config.mjs)
+tests/dom/dist/
 test-results/
 .env
 *.local
 
+
+# Local verification artefacts (screenshots, probe scripts); not shipped.
+.arena/
+# Verification screenshot sets from earlier passes. Kept locally, never shipped:
+# they were never tracked, and several predate the current ending.
+docs/

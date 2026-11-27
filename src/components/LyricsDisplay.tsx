@@ -15,6 +15,16 @@ export interface SafeBox {
   y1: number;
   x2: number;
   y2: number;
+  /**
+   * How strongly to avoid this box.
+   *
+   * The subject and the background cannot be treated alike: the window is a
+   * huge, central, permanently-visible rectangle, so counting it at the same
+   * weight as the plushies made *every* upper option look worse than parking the
+   * caption across both characters' faces. Characters therefore carry a much
+   * heavier weight than architecture.
+   */
+  weight?: number;
 }
 
 export interface LyricsHandle {
@@ -25,6 +35,14 @@ export interface LyricsHandle {
 }
 
 type Quadrant = "upper-left" | "mid-left" | "upper-right" | "lower-right";
+
+/**
+ * Vertical band reserved for the playback toolbar, in CSS pixels. The toolbar
+ * is a fixed overlay so these are stable; they only need to be tall enough
+ * that a settled caption never tucks underneath it.
+ */
+const TOOLBAR_RESERVE_DESKTOP = 96;
+const TOOLBAR_RESERVE_PHONE = 132;
 
 const QUADRANTS: Array<{ id: Quadrant; x: number; y: number; align: "left" | "right" | "center" }> = [
   { id: "upper-left", x: 0.24, y: 0.16, align: "left" },
@@ -39,8 +57,20 @@ const HERO_WORDS = new Set([
   "KOSHISHEIN", "INTEZAAR", "BARBAAD", "HAMDARDI", "SHIKWE",
 ]);
 
+/**
+ * Splits a token into its leading letters and any trailing punctuation, so the
+ * brush face only ever sets letters. A brushed comma beside a serif line reads
+ * as a typesetting mistake, and it also inflates the hero box.
+ */
+function splitToken(token: string): { word: string; tail: string } {
+  const match = /^([^\p{L}]*)(.*?)([^\p{L}]*)$/su.exec(token);
+  if (!match) return { word: token, tail: "" };
+  return { word: match[2] ?? token, tail: `${match[1] ?? ""}${match[3] ?? ""}` };
+}
+
 function isHeroWord(raw: string): boolean {
-  const clean = raw.replace(/[^A-Z]/gi, "").toUpperCase();
+  const clean = splitToken(raw).word.replace(/[^A-Z]/gi, "").toUpperCase();
+  if (!clean) return false;
   return HERO_WORDS.has(clean) || clean.length >= 8;
 }
 
@@ -61,15 +91,30 @@ function pickSafePosition(cueIndex: number, safeZones: SafeBox[]): { leftPct: nu
 
   for (let i = 0; i < QUADRANTS.length; i++) {
     const q = QUADRANTS[(cueIndex + i) % QUADRANTS.length]!;
+    // The box is deliberately generous: it approximates the *rendered* caption,
+    // which is a two-line, sometimes three-line block up to ~800px wide on a
+    // desktop. The previous half-width of 0.19 suggested a one-line caption in
+    // the middle of the screen, so the lower-right option scored as "clear" while
+    // actually sitting across both plushies at the kiss.
     const box: SafeBox = {
-      x1: q.x - 0.19,
-      x2: q.x + 0.19,
-      y1: q.y - 0.06,
-      y2: q.y + 0.06,
+      x1: q.x - 0.26,
+      x2: q.x + 0.26,
+      y1: q.y - 0.10,
+      y2: q.y + 0.10,
     };
+    // A caption that lands on top of the plushies is the one outcome that must
+    // never win, however convenient the quadrant is. Anything else — the window,
+    // the bed — is background and merely discouraged.
     let penalty = i * 0.004;
+    let characterHit = 0;
     for (const z of safeZones) {
-      penalty += overlapArea(box, z);
+      const weighted = overlapArea(box, z) * (z.weight ?? 1);
+      penalty += weighted;
+      if ((z.weight ?? 1) >= 10) characterHit += weighted;
+    }
+    if (characterHit > 0) {
+      // Dominant term: no amount of background clearance compensates.
+      penalty += 1000 + characterHit;
     }
     if (penalty < bestPenalty) {
       bestPenalty = penalty;
@@ -77,6 +122,10 @@ function pickSafePosition(cueIndex: number, safeZones: SafeBox[]): { leftPct: nu
     }
   }
 
+  // The percentages clamp the *centre*, but a wide caption is centred with
+  // translate(-50%), so a centre of 22% still pushes half the block off the left
+  // edge. The safe inset depends on how wide the caption actually is, which only
+  // the element knows — so `paint` refines this against its measured width.
   return {
     leftPct: clamp(best.x, 0.22, 0.78) * 100,
     topPct: clamp(best.y, 0.13, 0.87) * 100,
@@ -127,8 +176,24 @@ export const LyricsDisplay = forwardRef<LyricsHandle>(
             root.append(document.createTextNode(token));
             continue;
           }
+          if (isHeroWord(token)) {
+            const { word, tail } = splitToken(token);
+            const hero = document.createElement("span");
+            hero.className = "lyric-word-hero";
+            hero.textContent = word;
+            root.append(hero);
+
+            if (tail) {
+              const rest = document.createElement("span");
+              rest.className = "lyric-word-sub";
+              rest.textContent = tail;
+              root.append(rest);
+            }
+            continue;
+          }
+
           const span = document.createElement("span");
-          span.className = isHeroWord(token) ? "lyric-word-hero" : "lyric-word-sub";
+          span.className = "lyric-word-sub";
           span.textContent = token;
           root.append(span);
         }
@@ -158,8 +223,54 @@ export const LyricsDisplay = forwardRef<LyricsHandle>(
           const idx = Math.max(0, score.cues.indexOf(cue));
           const pos = pickSafePosition(idx, safeZones);
           root.dataset.zone = pos.zone;
+
+          // Place it, then keep it inside the viewport.
+          //
+          // `offsetWidth` is the layout width — it ignores the transform — so it
+          // is exactly the box the -50% centring translate operates on. Measuring
+          // the *rendered* rect here instead is a trap: the transform for this
+          // frame is written further down, so the rect still describes the
+          // previous cue, and correcting against it walks the caption off-screen.
           root.style.left = `${pos.leftPct.toFixed(1)}%`;
           root.style.top = `${pos.topPct.toFixed(1)}%`;
+
+          const MARGIN = 12;
+          const host = root.offsetParent as HTMLElement | null;
+          const hostWidth = Math.max(
+            1,
+            host && host.clientWidth > 0 ? host.clientWidth : window.innerWidth,
+          );
+          const hostHeight = Math.max(
+            1,
+            host && host.clientHeight > 0 ? host.clientHeight : window.innerHeight,
+          );
+
+          // Half the layout width, expressed as a percentage of the stage.
+          const halfW = (root.offsetWidth / 2 / hostWidth) * 100;
+          const halfH = (root.offsetHeight / 2 / hostHeight) * 100;
+          const xMargin = (MARGIN / hostWidth) * 100;
+          const yMargin = (MARGIN / hostHeight) * 100;
+
+          const minX = Math.min(halfW + xMargin, 50);
+          const maxX = Math.max(100 - halfW - xMargin, 50);
+          const minY = Math.min(halfH + yMargin, 50);
+          const maxY = Math.max(100 - halfH - yMargin, 50);
+
+          /*
+           * The cinematic toolbar (play, replay, "Aa", close) occupies the top
+           * of the frame. On a phone it is a large fraction of the height, so
+           * a caption obeying only the safe zones can settle underneath it.
+           * Reserve that band explicitly; the reserve is a constant because the
+           * toolbar's height does not depend on the cue.
+           */
+          const toolbarReserve = hostWidth < 640 ? TOOLBAR_RESERVE_PHONE : TOOLBAR_RESERVE_DESKTOP;
+          const minYClamped = Math.min(
+            Math.max(minY, ((toolbarReserve / hostHeight) * 100) + halfH),
+            50,
+          );
+
+          root.style.left = `${clamp(pos.leftPct, minX, maxX).toFixed(2)}%`;
+          root.style.top = `${clamp(pos.topPct, minYClamped, maxY).toFixed(2)}%`;
         }
 
         const springIn = cue && !reduced

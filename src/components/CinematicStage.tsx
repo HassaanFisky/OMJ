@@ -32,6 +32,8 @@ import {
   projectQuad,
 } from "../stage/Room3D";
 import { LyricsDisplay, type LyricsHandle, type SafeBox } from "./LyricsDisplay";
+import { CinematicGrade } from "./CinematicGrade";
+import { GlassBubble } from "./GlassBubble";
 
 function useReducedMotion() {
   const [reduced, setReduced] = useState(
@@ -61,6 +63,155 @@ interface StageProps {
   captionsVisible: boolean;
   openingContext: LiveOpeningContext | null;
   playbackRate: number;
+}
+
+/* ── ending: the room the final camera must frame ─────────────────────────── */
+
+/**
+ * The room's actual contents, in the film's art coordinates.
+ *
+ * Measured from the authored art, not guessed: the nightstand group sits at
+ * `translate(80 610)` and spans x≈90..270, the mirror/vanity tops out at y≈-223,
+ * the bed runs to y≈1038, and the bookshelf — the last thing on the right — is
+ * at `translate(1680 480)` and ends at x≈1825.
+ *
+ * This deliberately excludes the room's full-bleed wallpaper (`-1200..3400`)
+ * and floor bleed, which are unbounded backdrop, not content. Framing on those
+ * would zoom out until the furniture was a speck in an empty wall; framing on
+ * the contents is what makes the ending read as "the whole room".
+ */
+const ROOM_ART_BOUNDS = { x: 40, y: -223, width: 1785, height: 1261 } as const;
+
+interface ArtBox {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/** Viewport aspect, clamped the same way the camera clamps it. */
+export function viewportAspect(width: number, height: number): number {
+  return Math.max(0.25, width / Math.max(1, height));
+}
+
+/** The film's authored base frame for a given viewport aspect. */
+export function baseFrame(width: number, height: number) {
+  const aspect = viewportAspect(width, height);
+  const SAFE_W = 760;
+  const SAFE_H = 1040;
+
+  if (aspect >= SAFE_W / SAFE_H) {
+    return { width: SAFE_H * aspect, height: SAFE_H };
+  }
+  return { width: SAFE_W, height: SAFE_W / aspect };
+}
+
+/**
+ * The camera framing that holds the entire room, solved against the room's own
+ * bounds and the viewport's aspect ratio.
+ *
+ * This is the settled framing of the ending's pull-back. It is a viewBox — the
+ * camera's field of view and aim — exactly like every other shot in the film,
+ * so the room is framed by moving the camera and nothing else. No furniture is
+ * scaled or repositioned to fake a wide shot, and the room's proportions are
+ * never altered.
+ *
+ * A single `zoom` number cannot express this: zoom is floored at 0.48, and on a
+ * portrait phone the room is far wider than the viewport, so holding its full
+ * width needs a wider field of view than that floor allows. Solving here also
+ * makes the shot correct on every screen rather than only where it was authored.
+ */
+export function roomFitBox(width: number, height: number): ArtBox {
+  const aspect = viewportAspect(width, height);
+
+  /*
+   * Breathing room is added per axis, in *frame* terms rather than by inflating
+   * both sides equally. The room is wider than it is tall, so a single combined
+   * margin would either overflow the width or leave a dead band down one side.
+   */
+  const PAD = 20;
+  const roomW = ROOM_ART_BOUNDS.width + PAD * 2;
+  const roomH = ROOM_ART_BOUNDS.height + PAD * 1.5;
+
+  // Contain the room on both axes at this aspect.
+  const boxW = Math.max(roomW, roomH * aspect);
+  const boxH = boxW / aspect;
+
+  const centreX = ROOM_ART_BOUNDS.x + ROOM_ART_BOUNDS.width / 2;
+  const centreY = ROOM_ART_BOUNDS.y + ROOM_ART_BOUNDS.height / 2;
+
+  return {
+    x: centreX - boxW / 2,
+    y: centreY - boxH / 2,
+    width: boxW,
+    height: boxH,
+  };
+}
+
+/**
+ * Geometry for the ending's glass dome, solved against the live stage.
+ *
+ * Two constraints have to hold at once, on every screen:
+ *
+ *   1. The dome must be fully on screen, so it reads as an object rather than
+ *      a shape cropped by the viewport. That fixes its radius at just under
+ *      half of the *shorter* stage dimension — a circle, by construction.
+ *   2. The complete room must sit inside it, with nothing left outside the
+ *      glass. A room is wider than it is tall, so on a wide screen this needs
+ *      the camera further back than the plain room fit; the required viewBox is
+ *      derived from the room's diagonal, which is the only measurement that
+ *      guarantees the corners are enclosed too.
+ *
+ * `radiusPx` is emitted in pixels (not percentages) because the two axes of a
+ * stage are different lengths: a percentage radius would be an ellipse. Pixels
+ * plus `aspect-ratio: 1` make circularity a fact rather than a hope.
+ */
+export function bubbleGeometry(stageWidth: number, stageHeight: number) {
+  const w = stageWidth > 0 && Number.isFinite(stageWidth) ? stageWidth : 1440;
+  const h = stageHeight > 0 && Number.isFinite(stageHeight) ? stageHeight : 900;
+
+  /*
+   * Solve the fit on both axes instead of guessing a fraction of the short side.
+   *
+   * The keepsake is the dome *plus* its plinth, so the object spans 1.13r above
+   * the dome's centre and 1.238r below it (see the `.bubble-base` metrics). Two
+   * independent limits follow:
+   *
+   *   vertical   — 1.238r must clear the bottom of the frame  → r ≤ 0.38·h
+   *   horizontal — the dome is 2r wide, the plinth 1.16r          → r ≤ 0.49·w
+   *
+   * Taking the smaller keeps the object whole on a wide desktop *and* lets a
+   * portrait phone use its full width, which a `min(w, h)` fraction did not:
+   * there the short side is the width, so the dome was needlessly small.
+   */
+  const radiusPx = Math.min(w * 0.49, h * 0.38);
+
+  const PAD = 20;
+  const roomW = ROOM_ART_BOUNDS.width + PAD * 2;
+  const roomH = ROOM_ART_BOUNDS.height + PAD * 1.5;
+  const diagonal = Math.hypot(roomW, roomH);
+
+  /*
+   * Scale the room so its diagonal spans the dome's diameter, then convert that
+   * to a viewBox. Fitting the diagonal — not the box — is what keeps the
+   * corners of the room inside the circle.
+   */
+  const scale = (radiusPx * 2) / diagonal;
+  const boxW = w / scale;
+  const boxH = boxW / (w / h);
+
+  const centreX = ROOM_ART_BOUNDS.x + ROOM_ART_BOUNDS.width / 2;
+  const centreY = ROOM_ART_BOUNDS.y + ROOM_ART_BOUNDS.height / 2;
+
+  return {
+    radiusPx,
+    box: {
+      x: centreX - boxW / 2,
+      y: centreY - boxH / 2,
+      width: boxW,
+      height: boxH,
+    } as ArtBox,
+  };
 }
 
 export const CinematicStage = memo(forwardRef<StageHandle, StageProps>(function CinematicStage({
@@ -142,10 +293,10 @@ export const CinematicStage = memo(forwardRef<StageHandle, StageProps>(function 
         "room", "window", "sun", "moon", "cold",
         "cloudA", "cloudB", "cloudC", "bed", "message",
         "gifts", "flowers", "ringbox", "cigarette", "phone",
-        "thought", "dreamScene", "quilt", "stoolA", "stoolB",
+        "thought", "dreamScene", "quilt", "quilt-back", "stoolA", "stoolB",
         "lantern", "letter", "photoGlow", "lampGlow",
         "curtainA", "curtainB", "curtainC",
-        "shadowA", "shadowB", "snowglobe", "mirrorGroup",
+        "shadowA", "shadowB", "mirrorGroup",
         "mirrorWrapA", "mirrorWrapB", "stageBears",
       ].map((name) => [name, query(name)]),
     );
@@ -166,6 +317,7 @@ export const CinematicStage = memo(forwardRef<StageHandle, StageProps>(function 
     const bearAEl = element.querySelector<SVGGElement>('[data-bear="a"]')!;
     const bearBEl = element.querySelector<SVGGElement>('[data-bear="b"]')!;
     const surface = element.querySelector<HTMLElement>(".film-surface")!;
+    const bubbleEl = element.querySelector<HTMLElement>('.glass-bubble');
 
     const valid = duration > 0 && validateScore(score, duration).length === 0;
     const film = valid ? new FilmEngine(score, duration) : null;
@@ -175,35 +327,69 @@ export const CinematicStage = memo(forwardRef<StageHandle, StageProps>(function 
 
     function computeViewBox(frame: Frame): ViewBox {
       const { width, height } = stageSizeRef.current;
-      const aspect = Math.max(0.25, width / Math.max(1, height));
-      const SAFE_W = 760;
-      const SAFE_H = 1040;
-
-      let baseW: number;
-      let baseH: number;
-      if (aspect >= SAFE_W / SAFE_H) {
-        baseH = SAFE_H;
-        baseW = SAFE_H * aspect;
-      } else {
-        baseW = SAFE_W;
-        baseH = SAFE_W / aspect;
-      }
+      const base = baseFrame(width, height);
 
       const zoom = Math.max(0.48, frame.env.zoom || 1);
-      const vbW = baseW / zoom;
-      const vbH = baseH / zoom;
+      const vbW = base.width / zoom;
+      const vbH = base.height / zoom;
       const yawRad = (orbitRef.current.yaw * Math.PI) / 180;
       const orbitOffsetX = Math.sin(yawRad) * 185;
       const orbitOffsetY = orbitRef.current.pitch * 4.5;
       const focusX = (frame.env.camX ?? 480) + orbitOffsetX;
       const focusY = 515 + (frame.env.camY ?? 0) + orbitOffsetY;
 
-      return {
+      const shotBox: ViewBox = {
         x: focusX - vbW / 2,
         y: focusY - vbH / 2,
         width: vbW,
         height: vbH,
       };
+
+      /*
+       * The ending's pull-back eases `roomFrame` to 1. Blending the *box* rather
+       * than switching between two framings keeps the move continuous: at every
+       * instant the camera has one field of view aimed at one point, so there is
+       * no cut, snap or pop. Furniture is never touched — only the viewBox.
+       */
+      const roomFrame = clamp(frame.env.roomFrame ?? 0);
+      if (roomFrame <= 0) return shotBox;
+
+      const wide = roomFitBox(width, height);
+      const revealed: ArtBox = {
+        x: shotBox.x + (wide.x - shotBox.x) * roomFrame,
+        y: shotBox.y + (wide.y - shotBox.y) * roomFrame,
+        width: shotBox.width + (wide.width - shotBox.width) * roomFrame,
+        height: shotBox.height + (wide.height - shotBox.height) * roomFrame,
+      };
+
+      /*
+       * The glass arrives after the reveal. As it does, the camera keeps easing
+       * back — the same continuous move, never a second one — until the whole
+       * room fits inside the dome instead of merely inside the frame. Both
+       * framings are pure viewBoxes, so the room's geometry is untouched.
+       *
+       * The two fits are *composed*, not stacked. `roomFitBox` already contains
+       * the room on both axes, so the bubble framing has to be expressed as a
+       * single scale factor relative to it; blending to a second absolutely
+       * sized box would ease toward a framing solved from an already-wide one
+       * and fly the camera straight past the room.
+       */
+      const glass = clamp(frame.env.bubble ?? 0);
+      if (glass <= 0) return revealed;
+
+      const { box: bubbleBox } = bubbleGeometry(width, height);
+      // How much wider the bubble framing is than the plain room fit.
+      const contain = Math.max(1, bubbleBox.width / wide.width);
+      const t = glass * glass * (3 - 2 * glass); // smoothstep, for a soft settle
+      const k = 1 + (contain - 1) * t;
+
+      // Scale about the room's centre, so the move stays a camera pull-back.
+      const cx = revealed.x + revealed.width / 2;
+      const cy = revealed.y + revealed.height / 2;
+      const w2 = revealed.width * k;
+      const h2 = revealed.height * k;
+
+      return { x: cx - w2 / 2, y: cy - h2 / 2, width: w2, height: h2 };
     }
 
     function paint(rawFrame: Frame, time: number, isIntroPreview: boolean): SafeBox[] {
@@ -233,6 +419,45 @@ export const CinematicStage = memo(forwardRef<StageHandle, StageProps>(function 
       element.dataset.action = frame.action;
       element.dataset.reduced = String(reduced);
       surface.style.opacity = String(clamp(env.alpha));
+
+      /*
+       * The glass dome is laid out here rather than in JSX because its radius
+       * depends on the live stage size: it is solved so the dome *contains* the
+       * room the camera just framed, on whatever screen is watching. It is a
+       * CSS percentage of the stage width, so the ring itself is always a true
+       * circle — only how much of the room it can hold varies.
+       */
+      if (bubbleEl) {
+        const presence = clamp(env.bubble ?? 0);
+        bubbleEl.style.setProperty("--bubble-p", presence.toFixed(3));
+        const geo = bubbleGeometry(stageSizeRef.current.width, stageSizeRef.current.height);
+        bubbleEl.style.setProperty("--bubble-r", `${geo.radiusPx.toFixed(2)}px`);
+        bubbleEl.dataset.present = presence > 0.001 ? "true" : "false";
+
+        /*
+         * Containment. A real globe does not let its contents continue past the
+         * glass, and the room's flat paint runs wider than its furniture does —
+         * without this, the wall/floor bands would visibly cross the dome and
+         * the whole illusion would collapse into "a circle drawn on a picture".
+         *
+         * So the room is clipped to the glass as the glass forms. It starts on
+         * a circle larger than the frame (indistinguishable from no clip) and
+         * eases down to exactly the dome's radius, in step with the glass
+         * itself. Everything important — both characters, the bed, the window,
+         * the furniture — is already far inside that radius; only the endless
+         * wallpaper and floor edge meet the rim, which is precisely what the
+         * rim of a snow globe does.
+         */
+        const { width, height } = stageSizeRef.current;
+        const escape = Math.hypot(width, height) / 2 * 1.02;
+        const ease = presence * presence * (3 - 2 * presence);
+        const clipRadius = escape + (geo.radiusPx - escape) * ease;
+        surface.style.setProperty(
+          "--bubble-clip",
+          `circle(${clipRadius.toFixed(1)}px at 50% 50%)`,
+        );
+        surface.dataset.bubbled = presence > 0.001 ? "true" : "false";
+      }
 
       // Coherent Sky Gradient Colors
       nodes.skyTopStop!.setAttribute("stop-color", auth.skyTop);
@@ -318,6 +543,7 @@ export const CinematicStage = memo(forwardRef<StageHandle, StageProps>(function 
       setOpacity("message", env.message);
       setOpacity("photoGlow", env.photoGlow * 0.65);
       setOpacity("quilt", env.quilt);
+      setOpacity("quilt-back", env.quilt);
       setOpacity("lantern", env.lantern);
       setOpacity("letter", env.letter);
 
@@ -411,7 +637,15 @@ export const CinematicStage = memo(forwardRef<StageHandle, StageProps>(function 
           `translate(${pose.x} ${shadowY})`,
         );
         nodes[name]!.setAttribute("rx", String(rx));
-        nodes[name]!.setAttribute("opacity", String(pose.alpha * 0.24));
+        /*
+         * The gradient supplies the falloff, so opacity only needs to reflect
+         * the character's own visibility. Slightly lower on the bed, where the
+         * quilt already grounds them and a strong shadow would read as a stain.
+         */
+        nodes[name]!.setAttribute(
+          "opacity",
+          String(pose.alpha * (isOnBed ? 0.42 : 0.72)),
+        );
       }
 
       if (frame.action === "lap") {
@@ -534,21 +768,6 @@ export const CinematicStage = memo(forwardRef<StageHandle, StageProps>(function 
       paintDreamA(dream.a, time, reduced, 0.9);
       paintDreamB(dream.b, time, reduced, 0.9);
 
-      // ── Ornate Snow Globe Climax (Outro `tail`) ──────────────────────────
-      const globeReveal =
-        frame.action === "tail"
-          ? clamp((0.94 - env.zoom) / 0.24)
-          : 0;
-      setOpacity("snowglobe", globeReveal);
-      nodes.snowglobe!.style.visibility = globeReveal > 0.01 ? "visible" : "hidden";
-      const globeX = vb.x + vb.width / 2;
-      const globeY = vb.y + vb.height * 0.5;
-      const globeS = Math.min(vb.width / 820, vb.height / 940);
-      nodes.snowglobe!.setAttribute(
-        "transform",
-        `translate(${globeX} ${globeY}) scale(${globeS})`,
-      );
-
       // Update Lyric Caption Tone from Authoritative Weather State
       lyrics.current?.setTone(auth.captionTone);
       lyrics.current?.setVisible(captionsVisibleRef.current);
@@ -564,9 +783,11 @@ export const CinematicStage = memo(forwardRef<StageHandle, StageProps>(function 
         y2: clamp((wy + wh - vb.y) / vb.height, 0, 1),
       });
 
+      // The plushies are the subject and are protected far more strictly than
+      // furniture or the window, which are allowed to sit under a caption.
       return [
-        toNorm(frame.a.x - 68, frame.a.y - 220, 136, 235),
-        toNorm(frame.b.x - 68, frame.b.y - 220, 136, 235),
+        { ...toNorm(frame.a.x - 68, frame.a.y - 220, 136, 235), weight: 12 },
+        { ...toNorm(frame.b.x - 68, frame.b.y - 220, 136, 235), weight: 12 },
         toNorm(1220, 650, 440, 380), // Bed
         toNorm(400, 130, 710, 460),  // Window
       ];
@@ -746,6 +967,13 @@ export const CinematicStage = memo(forwardRef<StageHandle, StageProps>(function 
               <stop offset="1" stopColor="#ffe7b5" stopOpacity="0" />
             </radialGradient>
 
+            <radialGradient id="contact-shadow">
+              <stop offset="0%" stopColor="#0b0914" stopOpacity="0.62" />
+              <stop offset="46%" stopColor="#0b0914" stopOpacity="0.34" />
+              <stop offset="78%" stopColor="#0b0914" stopOpacity="0.10" />
+              <stop offset="100%" stopColor="#0b0914" stopOpacity="0" />
+            </radialGradient>
+
             <radialGradient id="lamp-radial">
               <stop stopColor="#ffd788" stopOpacity="0.45" />
               <stop offset="0.55" stopColor="#f5b868" stopOpacity="0.16" />
@@ -762,7 +990,7 @@ export const CinematicStage = memo(forwardRef<StageHandle, StageProps>(function 
               <path d="M39 40l3-4 3 4-3 4Z" fill="#d3b8cb" opacity="0.08" />
             </pattern>
 
-            <linearGradient id="wood-floor" x1="0" y1="0" x2="0" y2="1">
+            <linearGradient id="wood-floor" gradientUnits="userSpaceOnUse" x1="0" y1="838" x2="0" y2="1838">
               <stop offset="0%" stopColor="#2f2433" />
               <stop offset="100%" stopColor="#1e1724" />
             </linearGradient>
@@ -772,11 +1000,11 @@ export const CinematicStage = memo(forwardRef<StageHandle, StageProps>(function 
               id="room-cutout"
               maskUnits="userSpaceOnUse"
               x="-2000"
-              y="-1000"
+              y="-2600"
               width="6000"
-              height="4000"
+              height="6000"
             >
-              <rect x="-2000" y="-1000" width="6000" height="4000" fill="white" />
+              <rect x="-2000" y="-2600" width="6000" height="6000" fill="white" />
               <rect x="420" y="148" width="210" height="414" rx="24" fill="black" />
               <rect x="650" y="148" width="210" height="414" rx="24" fill="black" />
               <rect x="880" y="148" width="210" height="414" rx="24" fill="black" />
@@ -833,8 +1061,8 @@ export const CinematicStage = memo(forwardRef<StageHandle, StageProps>(function 
           <g data-node="room3d" opacity="0" />
           <g data-node="room">
             <g mask="url(#room-cutout)">
-              <rect x="-1200" y="-600" width="4600" height="1435" fill="#362c45" />
-              <rect x="-1200" y="-600" width="4600" height="1435" fill="url(#wallpaper)" />
+              <rect x="-1200" y="-2400" width="4600" height="3235" fill="#362c45" />
+              <rect x="-1200" y="-2400" width="4600" height="3235" fill="url(#wallpaper)" />
               {/* Architectural wainscot molding */}
               <path d="M-1200 660 H3400" stroke="#644e69" strokeWidth="4" opacity="0.55" />
               <rect x="-1200" y="662" width="4600" height="162" fill="#2d243b" opacity="0.55" />
@@ -845,7 +1073,7 @@ export const CinematicStage = memo(forwardRef<StageHandle, StageProps>(function 
             <path d="M-1200 820 H3400" stroke="#8f6e86" strokeWidth="2" opacity="0.4" />
 
             {/* Perspective Wooden Floor */}
-            <rect x="-1200" y="838" width="4600" height="1000" fill="url(#wood-floor)" />
+            <rect x="-1200" y="838" width="4600" height="2400" fill="url(#wood-floor)" />
             {/* Perspective wooden plank seams converging toward room vanishing point */}
             {[-400, -150, 100, 320, 520, 720, 920, 1120, 1340, 1580, 1840, 2100].map(
               (fx) => (
@@ -963,7 +1191,7 @@ export const CinematicStage = memo(forwardRef<StageHandle, StageProps>(function 
           </g>
 
           {/* Subtle Cold Atmosphere Tint */}
-          <rect data-node="cold" x="-1200" y="-600" width="4600" height="2200" fill="#7e9ad4" opacity="0" />
+          <rect data-node="cold" x="-1200" y="-2400" width="4600" height="4000" fill="#7e9ad4" opacity="0" />
         </svg>
 
         {/* ── CANVAS LAYER: STRICTLY CLIPPED EXTERIOR WEATHER + PARTICLES ─── */}
@@ -994,27 +1222,23 @@ export const CinematicStage = memo(forwardRef<StageHandle, StageProps>(function 
               <stop offset="50%" stopColor="#3c3458" />
               <stop offset="100%" stopColor="#262038" />
             </linearGradient>
+            {/*
+              ONE quilt outline, authored once. Both the back and front layers
+              reference this same path, which is what guarantees the fabric is a
+              single continuous textile rather than two overlapping blankets.
+            */}
+            <clipPath id="quilt-clip">
+              <path d="M1216 812 Q1300 790 1372 796 Q1448 802 1520 792 Q1584 784 1630 806 Q1656 830 1650 866 Q1642 916 1600 954 Q1546 1000 1476 1022 Q1402 1042 1330 1018 Q1268 996 1244 946 Q1222 896 1236 852 Q1244 826 1216 812 Z" />
+            </clipPath>
+            {/* Only the part of that one quilt below the pair's chests is drawn
+                in front of them. */}
+            <clipPath id="quilt-front-clip">
+              <path d="M1170 858 Q1360 830 1476 840 Q1580 850 1670 832 L1670 1080 L1170 1080 Z" />
+            </clipPath>
             <radialGradient id="lantern-glow">
               <stop stopColor="#ffe1a1" stopOpacity="0.45" />
               <stop offset="1" stopColor="#ffe1a1" stopOpacity="0" />
             </radialGradient>
-            <radialGradient id="snowglobe-halo">
-              <stop stopColor="#e8d5f5" stopOpacity="0.38" />
-              <stop offset="1" stopColor="#e8d5f5" stopOpacity="0" />
-            </radialGradient>
-            <linearGradient id="wood-tier1" x1="0" y1="0" x2="0" y2="1">
-              <stop stopColor="#5a3825" />
-              <stop offset="1" stopColor="#3e2415" />
-            </linearGradient>
-            <linearGradient id="wood-body" x1="0" y1="0" x2="0" y2="1">
-              <stop stopColor="#422616" />
-              <stop offset="1" stopColor="#2a170e" />
-            </linearGradient>
-            <linearGradient id="brass-plate" x1="0" y1="0" x2="1" y2="0">
-              <stop stopColor="#ffe8a3" />
-              <stop offset="0.5" stopColor="#d4aa50" />
-              <stop offset="1" stopColor="#8c6b28" />
-            </linearGradient>
 
             <radialGradient id="dream-sky-grad" cx="0.5" cy="0.32" r="0.68">
               <stop offset="0%" stopColor="#fde1c8" stopOpacity="0.65" />
@@ -1315,8 +1539,10 @@ export const CinematicStage = memo(forwardRef<StageHandle, StageProps>(function 
           ))}
 
           {/* ── CHARACTER CONTACT SHADOWS ───────────────────────────────────── */}
-          <ellipse data-node="shadowA" rx="54" ry="11" fill="#100d1c" opacity="0.24" />
-          <ellipse data-node="shadowB" rx="54" ry="11" fill="#100d1c" opacity="0.24" />
+          {/* Soft contact shadows: a radial falloff rather than a hard ellipse,
+              so the plushies sit in the room instead of floating above it. */}
+          <ellipse data-node="shadowA" rx="78" ry="19" fill="url(#contact-shadow)" opacity="0.9" />
+          <ellipse data-node="shadowB" rx="78" ry="19" fill="url(#contact-shadow)" opacity="0.9" />
 
           {/* ── MOCHI (TEDDY A) & YUME (TEDDY B) ──────────────────────────── */}
           <g data-node="stageBears">
@@ -1324,36 +1550,106 @@ export const CinematicStage = memo(forwardRef<StageHandle, StageProps>(function 
             <BearRig id="b" variant="b" />
           </g>
 
-          {/* ── SHARED QUILT (RAZAI) FOR CUE 43 ON DIAGONAL BED ────────────── */}
+          {/* ── THE FRONT OF THE ONE QUILT ─────────────────────────────────────
+              The same path as `quilt-back`, drawn after the plushies and clipped
+              to the region below their chests. Sharing geometry is what makes
+              them *inside* one blanket; a separately authored runner is exactly
+              what used to read as a second, floating cloth.
+          ─────────────────────────────────────────────────────────────────── */}
           <g data-node="quilt" opacity="0">
+            <g clipPath="url(#quilt-front-clip)">
+              <path
+                d="M1216 812 Q1300 790 1372 796 Q1448 802 1520 792 Q1584 784 1630 806 Q1656 830 1650 866 Q1642 916 1600 954 Q1546 1000 1476 1022 Q1402 1042 1330 1018 Q1268 996 1244 946 Q1222 896 1236 852 Q1244 826 1216 812 Z"
+                fill="url(#quilt-color)"
+                stroke="#5d4559"
+                strokeWidth="2.8"
+                strokeLinejoin="round"
+              />
+              <g clipPath="url(#quilt-clip)" opacity="0.4">
+                <g stroke="#dcbfd0" strokeWidth="1.5" strokeDasharray="6 8" fill="none">
+                  <path d="M1160 700 L1440 1060" />
+                  <path d="M1226 690 L1506 1050" />
+                  <path d="M1292 682 L1572 1042" />
+                  <path d="M1358 676 L1638 1036" />
+                  <path d="M1424 674 L1704 1034" />
+                  <path d="M1160 1040 L1440 690" />
+                  <path d="M1226 1060 L1506 710" />
+                  <path d="M1292 1070 L1572 720" />
+                  <path d="M1358 1080 L1638 730" />
+                  <path d="M1424 1080 L1704 730" />
+                </g>
+              </g>
+            </g>
+
+            {/* The rolled fold across their bodies: this is the edge the paws
+                rest on, so it has to read as soft fabric, not a drawn line. */}
             <path
-              d="M1302 848 Q1425 824 1558 854 L1528 972 Q1385 954 1252 932 Z"
+              d="M1226 876 Q1310 854 1386 862 Q1466 870 1540 858 Q1596 850 1640 870"
+              fill="none" stroke="#e6cfdb" strokeWidth="12" strokeLinecap="round" opacity="0.88"
+            />
+            <path
+              d="M1226 876 Q1310 854 1386 862 Q1466 870 1540 858 Q1596 850 1640 870"
+              fill="none" stroke="#a98a9f" strokeWidth="2.1" strokeLinecap="round" opacity="0.4"
+            />
+          </g>
+
+          {/* ── THE WINTER RAZAI: ONE SHARED BLANKET ────────────────────────
+              This is a single piece of bedding, not two.
+
+              An earlier version drew a heap behind the pair *and* a separate
+              runner across their laps, and the two shapes never quite met — so
+              the pair appeared to be wearing two overlapping razais. There is
+              now exactly one outline, authored once and reused three times:
+
+                • `quilt-body`  — the whole textile, drawn behind the plushies
+                • `quilt-front` — the same outline, clipped to the region below
+                                  the pair's chests, drawn in front of them
+
+              Because both layers share one path, the fabric is continuous
+              through and around the bodies: there is no seam to read as a
+              second blanket, and the paws contact the same cloth the bodies
+              are under.
+          ─────────────────────────────────────────────────────────────────── */}
+          <g data-node="quilt-back" opacity="0">
+            <path
+              d="M1216 812 Q1300 790 1372 796 Q1448 802 1520 792 Q1584 784 1630 806 Q1656 830 1650 866 Q1642 916 1600 954 Q1546 1000 1476 1022 Q1402 1042 1330 1018 Q1268 996 1244 946 Q1222 896 1236 852 Q1244 826 1216 812 Z"
               fill="url(#quilt-color)"
-              stroke="#685069"
-              strokeWidth="3"
+              stroke="#5d4559"
+              strokeWidth="2.8"
               strokeLinejoin="round"
             />
-            {/* Plush rolled top quilt fold */}
+
+            {/* Padded volume: long soft crests catching light along the upper
+                fold, which is what stops the mass reading as a flat shape. */}
             <path
-              d="M1305 848 Q1425 828 1554 854"
-              fill="none"
-              stroke="#e5c6d4"
-              strokeWidth="16"
-              strokeLinecap="round"
-            />
-            {/* Quilted diamond stitching */}
-            <path
-              d="M1355 860 L1320 940 M1425 852 L1405 954 M1495 858 L1485 964 M1278 898 Q1415 920 1538 914"
-              fill="none"
-              stroke="#d6b4c8"
-              strokeWidth="1.5"
-              strokeDasharray="4 6"
-              opacity="0.65"
+              d="M1248 824 Q1322 802 1400 806 Q1490 810 1564 800 Q1608 794 1638 812"
+              fill="none" stroke="#c8a7bd" strokeWidth="5" strokeLinecap="round" opacity="0.5"
             />
             <path
-              d="M1412 895 q-14-18-22-4 q-3 9 22 25 q25-16 22-25 q-8-14-22 4"
-              fill="#d6b3c6"
-              opacity="0.68"
+              d="M1236 868 Q1292 848 1360 854"
+              fill="none" stroke="#b392ab" strokeWidth="3.4" strokeLinecap="round" opacity="0.4"
+            />
+
+            {/* Diamond quilting over the whole textile. */}
+            <g clipPath="url(#quilt-clip)" opacity="0.45">
+              <g stroke="#dcbfd0" strokeWidth="1.5" strokeDasharray="6 8" fill="none">
+                <path d="M1160 700 L1440 1060" />
+                <path d="M1226 690 L1506 1050" />
+                <path d="M1292 682 L1572 1042" />
+                <path d="M1358 676 L1638 1036" />
+                <path d="M1424 674 L1704 1034" />
+                <path d="M1160 1040 L1440 690" />
+                <path d="M1226 1060 L1506 710" />
+                <path d="M1292 1070 L1572 720" />
+                <path d="M1358 1080 L1638 730" />
+                <path d="M1424 1080 L1704 730" />
+              </g>
+            </g>
+
+            {/* Embroidery, low on the drape where a real quilt would carry it. */}
+            <path
+              d="M1452 952 q-13-17-21-4 q-3 9 21 23 q24-14 21-23 q-8-13-21 4"
+              fill="#d8b3c8" opacity="0.55"
             />
           </g>
 
@@ -1458,38 +1754,17 @@ export const CinematicStage = memo(forwardRef<StageHandle, StageProps>(function 
             </text>
           </g>
 
-          {/* Ornate Snow Globe Climax Frame (Outro `tail` — SINGLE OMJ Plaque) */}
-          <g data-node="snowglobe" opacity="0" style={{ visibility: "hidden" }}>
-            <circle cx="0" cy="0" r="355" fill="url(#snowglobe-halo)" opacity="0.34" />
-            <circle cx="0" cy="0" r="344" fill="none" stroke="#d5c0e8" strokeWidth="6" opacity="0.62" />
-            <circle cx="0" cy="0" r="346" fill="none" stroke="#ffffff" strokeWidth="2" opacity="0.78" />
-            <path d="M-205 -210 A 330 330 0 0 1 -20 -330" fill="none" stroke="#ffffff" strokeWidth="5" strokeLinecap="round" opacity="0.65" />
-            <ellipse cx="-115" cy="-275" rx="40" ry="15" transform="rotate(-35 -115 -275)" fill="#ffffff" opacity="0.45" />
-
-            <g transform="translate(0 330)">
-              <ellipse cy="72" rx="255" ry="22" fill="#0c0a18" opacity="0.58" />
-              <ellipse cy="0" rx="242" ry="24" fill="url(#wood-tier1)" stroke="#523220" strokeWidth="2" />
-              <path d="M-242 0 L-266 44 C-180 62 180 62 266 44 L242 0 Z" fill="url(#wood-body)" stroke="#422515" strokeWidth="2" />
-              <path d="M-256 22 C-170 38 170 38 256 22" fill="none" stroke="#f6dfa8" strokeWidth="3.5" opacity="0.78" />
-              <ellipse cy="48" rx="274" ry="25" fill="url(#wood-tier1)" stroke="#523220" strokeWidth="2" />
-              <path d="M-274 48 L-280 68 C-190 88 190 88 280 68 L274 48 Z" fill="#2d1910" />
-              <rect x="-58" y="28" width="116" height="26" rx="5" fill="url(#brass-plate)" stroke="#f5dfa5" strokeWidth="1.4" />
-              <text
-                x="0"
-                y="46"
-                textAnchor="middle"
-                fontFamily="Georgia, serif"
-                fontSize="15"
-                letterSpacing="3"
-                fill="#382108"
-                fontWeight="bold"
-              >
-                OMJ
-              </text>
-            </g>
-          </g>
         </svg>
       </div>
+
+      {/*
+        The ending's glass. Mounted after the grade so the room is graded first
+        and then sealed — the dome encloses a finished image rather than being
+        something the grade washes over.
+      */}
+      <GlassBubble presence={0} />
+
+      <CinematicGrade />
 
       <div className="vignette" aria-hidden="true" />
       <LyricsDisplay ref={lyrics} />

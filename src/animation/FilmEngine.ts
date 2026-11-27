@@ -102,11 +102,21 @@ export class FilmEngine {
     frame.progress = clamp(local / (shot.end - shot.start));
 
     if (reduced) {
+      /*
+       * Reduced motion removes camera travel, but it must not remove the
+       * destination. The ending's whole payoff is the wide shot, so the outro
+       * keeps the finished framing and simply arrives there without the move.
+       */
       frame.env.zoom = 1;
       frame.env.camY = 0;
 
       if (shot.action === "tail") {
-        frame.env.alpha = 1 - frame.progress;
+        frame.env.roomFrame = 1;
+        /*
+         * The bubble is the ending's final state, not its travel, so reduced
+         * motion keeps it. It arrives without the camera move.
+         */
+        frame.env.bubble = frame.progress > 0.9 ? 1 : frame.progress / 0.9;
       }
     }
 
@@ -150,10 +160,16 @@ export class FilmEngine {
       );
     }
 
-    if (time >= this.duration) {
-      frame.env.alpha = 0;
-    }
-
+    /*
+     * The film used to fade its own picture out on the final frame. That was
+     * correct when the ending was a black fade, but the ending is now a
+     * composition that has to be *looked at* — the complete room sealed in
+     * glass. Blacking it out here would delete the payload at the exact moment
+     * it lands, and leave an empty sphere behind.
+     *
+     * The hand-back to the entrance is handled by the shell instead, which
+     * holds this frame and then cross-fades to the entrance on top of it.
+     */
     return frame;
   }
 

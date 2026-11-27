@@ -64,6 +64,24 @@ export interface Environment {
   hold: number;
   hug: number;
   zoom: number;
+  /**
+   * 0 = framed as authored, 1 = the whole room framed by the camera.
+   *
+   * The ending's pull-back is expressed with this rather than with a single
+   * `zoom` number, because the widest legal framing depends on the viewport's
+   * aspect ratio and the camera cannot be widened past its floor. Easing this
+   * term from 0 to 1 lets the room fit be solved at paint time, on whatever
+   * screen is actually watching, while the camera stays a pure camera.
+   */
+  roomFrame: number;
+  /**
+   * 0 = no glass, 1 = the room fully inside its bubble.
+   *
+   * Drives the ending's glass optics only. It has no effect on the camera, the
+   * furniture or the grade, so the room the bubble seals is exactly the room
+   * the camera revealed.
+   */
+  bubble: number;
   alpha: number;
   camX: number; // horizontal focus center in bedroom world (opening 460 -> 1290)
   camY: number;
@@ -164,6 +182,8 @@ export function targetFor(action: Action): Frame {
       hold: 0,
       hug: 0,
       zoom: 1,
+      roomFrame: 0,
+      bubble: 0,
       alpha: 1,
       camX: 480,
       camY: 0,
@@ -1036,22 +1056,44 @@ export function beatsFor(action: Action, seconds: number): Beat[] {
   }
 
   if (action === "tail") {
-    const pullBack = cloneFrame(target);
-    pullBack.env.camX = 1180;
-    pullBack.env.camY = -10;
-    pullBack.env.zoom = 0.62;
-    pullBack.env.snow = 0.82;
-    pullBack.env.stars = 1;
+    /*
+     * The ending is one continuous camera move and nothing else.
+     *
+     * Hold on the intimate composition the last verse left behind, then ease
+     * the camera back until the whole bedroom is in frame, and settle. The wide
+     * shot is expressed as `roomFrame` rather than a fixed zoom because the
+     * widest legal framing depends on the viewport: the camera's zoom floor
+     * alone cannot hold a 1.53-aspect room on a phone. `computeViewBox` solves
+     * the fit against the real room bounds and the current aspect.
+     *
+     * No furniture is scaled or repositioned, no alpha fade is applied, and the
+     * exterior weather is untouched — only the camera's aim and framing move.
+     */
+    // Hold on the last verse's composition before the camera starts moving.
+    const settled = cloneFrame(target);
+    settled.env.roomFrame = 1;
+    settled.env.snow = 0.82;
+    settled.env.stars = 1;
 
-    const finalGlobe = cloneFrame(pullBack);
-    finalGlobe.env.alpha = 0.92;
-    finalGlobe.env.zoom = 0.56;
-    finalGlobe.env.camY = -20;
+    /*
+     * The glass arrives *after* the room has been revealed, so the audience
+     * first sees the complete bedroom and only then sees it enclosed. Two
+     * beats rather than one simultaneous move — a dome that grows while the
+     * camera is still travelling reads as a transition effect, which is the
+     * opposite of the intended illusion.
+     */
+    const glassed = cloneFrame(settled);
+    glassed.env.bubble = 1;
 
     return [
-      { at: 0.15, frame: target },
-      { at: 0.62, frame: pullBack },
-      { at: 1, frame: finalGlobe },
+      // Hold the last verse for a beat before the camera gives it up.
+      { at: 0.16, frame: target },
+      // The reveal: one continuous pull-back to the complete bedroom.
+      { at: 0.62, frame: settled },
+      // Let the wide shot breathe before anything is added to it.
+      { at: 0.76, frame: settled },
+      // Then the glass forms around the room that is already there.
+      { at: 1, frame: glassed },
     ];
   }
 

@@ -303,3 +303,46 @@ test("supports top-left pin-up speed popover, arrow seek, rounded teddy ears, an
   expect(Number(await page.locator('[data-node="room3d"]').getAttribute("opacity"))).toBeGreaterThan(0.5);
   await page.mouse.up();
 });
+
+test("captions never cover a character or leave the screen", async ({ page }) => {
+  await loadAudio(page);
+  await page.getByRole("button", { name: "PLAY OMJ", exact: true }).click();
+  await page.getByRole("button", { name: "Pause", exact: true }).click();
+
+  const cueStarts = initialScore.cues.map((cue) => cue.start);
+
+  // Sampled just inside each cue so the caption has settled on its chosen zone.
+  for (const start of cueStarts) {
+    await page.locator("audio").evaluate((audio, value) => {
+      (audio as HTMLAudioElement).currentTime = value;
+      // Sample once the 0.28s intro spring has finished, so the measured box is
+      // the caption's settled geometry rather than a mid-animation frame.
+    }, start + 0.55);
+    await page.waitForTimeout(420);
+
+    const verdict = await page.evaluate(() => {
+      const caption = document.querySelector(".lyric-caption");
+      if (!caption) return { cue: null, overlap: 0, offscreen: false };
+
+      const box = caption.getBoundingClientRect();
+      const bears = ["a", "b"]
+        .map((id) => document.querySelector(`[data-bear="${id}"]`)?.getBoundingClientRect() ?? null)
+        .filter((value): value is DOMRect => value !== null);
+
+      const overlapArea = (a: DOMRect, b: DOMRect) =>
+        Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left)) *
+        Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
+
+      return {
+        cue: (caption as HTMLElement).dataset.cue ?? null,
+        overlap: Math.round(bears.reduce((sum, bear) => sum + overlapArea(box, bear), 0)),
+        offscreen:
+          box.left < -1 || box.top < -1 || box.right > window.innerWidth + 1 || box.bottom > window.innerHeight + 1,
+      };
+    });
+
+    expect(verdict.cue, `cue at ${start}s should be displayed`).not.toBeNull();
+    expect(verdict.overlap, `caption at ${start}s overlaps a character by ${verdict.overlap}px²`).toBe(0);
+    expect(verdict.offscreen, `caption at ${start}s is outside the viewport`).toBe(false);
+  }
+});
