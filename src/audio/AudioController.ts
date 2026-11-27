@@ -42,6 +42,17 @@ export class AudioController {
 
   getSnapshot = () => this.snapshot;
 
+  /**
+   * The media element is the clock. `snapshot.time` is only refreshed on the
+   * `timeupdate` cadence, so a seek that is still settling leaves it stale for a
+   * frame or two — and an arrow-key scrub computed from it silently superseded
+   * the seek the listener had just made. Read the element itself.
+   */
+  getCurrentTime = () => {
+    const live = this.audio?.currentTime;
+    return typeof live === "number" && Number.isFinite(live) ? live : this.snapshot.time;
+  };
+
   subscribe = (listener: () => void) => {
     this.listeners.add(listener);
 

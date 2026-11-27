@@ -1,7 +1,12 @@
 node_modules/
 dist/
 playwright-report/
+# Bundled jsdom harness output (see tests/dom/vite.config.mjs)
+tests/dom/dist/
 test-results/
 .env
 *.local
 
+
+# Local verification artefacts (screenshots, probe scripts); not shipped.
+.arena/

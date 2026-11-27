@@ -63,6 +63,84 @@ interface StageProps {
   playbackRate: number;
 }
 
+/* ── ending: the room the snow globe must enclose ─────────────────────────── */
+
+/**
+ * The bedroom's painted extents, in the film's art coordinates.
+ *
+ * Measured from the authored art itself: the room group paints a full-bleed
+ * wallpaper field (`-1200..3400`) and a floor to y≈1838, while the furniture —
+ * nightstand at (80,610), bookcase at (1365,385), dresser at (1680,480),
+ * bed at x≈1245 — all live inside the 1440×900 frame. Using the *frame* rather
+ * than the infinite wallpaper/floor bleed is what makes the globe enclose the
+ * room as the viewer sees it instead of an unbounded wall.
+ */
+const ROOM_ART_BOUNDS = { x: -260, y: -223, width: 1925, height: 1261 } as const;
+
+interface ArtBox {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * Project the room's art bounds through the current camera framing.
+ *
+ * The camera in this stage is a 2D viewBox, not a perspective matrix, so
+ * "projection" is clamping the room box to the frame. Returning it in art
+ * coordinates keeps the globe markup in the same space as the artwork it wraps,
+ * which is why the base stays in proportion when the viewBox widens.
+ */
+function projectRoomBounds(vb: ArtBox): ArtBox {
+  const x1 = Math.max(ROOM_ART_BOUNDS.x, vb.x);
+  const y1 = Math.max(ROOM_ART_BOUNDS.y, vb.y);
+  const x2 = Math.min(ROOM_ART_BOUNDS.x + ROOM_ART_BOUNDS.width, vb.x + vb.width);
+  const y2 = Math.min(ROOM_ART_BOUNDS.y + ROOM_ART_BOUNDS.height, vb.y + vb.height);
+
+  // Always fall back to the full room: the globe's job is to contain the room,
+  // so a tight tail crop must not shrink it to whatever happens to be visible.
+  if (x2 - x1 < ROOM_ART_BOUNDS.width * 0.55 || y2 - y1 < ROOM_ART_BOUNDS.height * 0.55) {
+    return { ...ROOM_ART_BOUNDS };
+  }
+  return { x: x1, y: y1, width: x2 - x1, height: y2 - y1 };
+}
+
+/**
+ * Widen the tail camera so a sphere of `radius` around `centre` fits on screen.
+ *
+ * This is the piece that removes the cropping. The finale used to inherit the
+ * shot's own zoom, so a globe sized to the room overflowed the frame and the
+ * furniture was clipped at the edges. Here the camera is pulled back exactly as
+ * far as the globe needs, and no further.
+ */
+function globeViewBox(
+  base: ArtBox,
+  box: { left: number; right: number; top: number; bottom: number },
+  viewportAspect: number,
+): ArtBox {
+  const margin = 0.07;
+  const width = Math.max(base.width, (box.right - box.left) * (1 + margin * 2));
+  const height = Math.max(base.height, (box.bottom - box.top) * (1 + margin * 2));
+
+  /*
+   * The stage's SVGs use `preserveAspectRatio="none"`, so a user-space circle is
+   * stretched into an ellipse unless the viewBox has the same aspect ratio as
+   * the viewport. That is exactly what happened in the first pass: the glass
+   * read as a wide oval lying on its side. Matching the aspect here is what
+   * makes the sphere actually round on screen at every window size.
+   */
+  const aspect = Math.max(0.2, Math.min(5, viewportAspect));
+  let w = width;
+  let h = height;
+  if (w / h < aspect) w = h * aspect;
+  else h = w / aspect;
+
+  const centreX = (box.left + box.right) / 2;
+  const centreY = (box.top + box.bottom) / 2;
+  return { x: centreX - w / 2, y: centreY - h / 2, width: w, height: h };
+}
+
 export const CinematicStage = memo(forwardRef<StageHandle, StageProps>(function CinematicStage({
   controller,
   score,
@@ -167,6 +245,17 @@ export const CinematicStage = memo(forwardRef<StageHandle, StageProps>(function 
     const bearBEl = element.querySelector<SVGGElement>('[data-bear="b"]')!;
     const surface = element.querySelector<HTMLElement>(".film-surface")!;
 
+    /**
+     * Set while the ending's snow globe is on screen. `computeViewBox` widens the
+     * frame to hold it, which is what keeps the whole room inside the glass.
+     */
+    let globeFrame: {
+      left: number;
+      right: number;
+      top: number;
+      bottom: number;
+    } | null = null;
+
     const valid = duration > 0 && validateScore(score, duration).length === 0;
     const film = valid ? new FilmEngine(score, duration) : null;
 
@@ -198,12 +287,26 @@ export const CinematicStage = memo(forwardRef<StageHandle, StageProps>(function 
       const focusX = (frame.env.camX ?? 480) + orbitOffsetX;
       const focusY = 515 + (frame.env.camY ?? 0) + orbitOffsetY;
 
-      return {
+      let viewBox: ViewBox = {
         x: focusX - vbW / 2,
         y: focusY - vbH / 2,
         width: vbW,
         height: vbH,
       };
+
+      // The finale must contain the keepsake, not crop it. If the globe needs
+      // more room than the shot gives, widen the frame around the globe and
+      // never the other way round — the film is never allowed to force the
+      // sphere to be smaller than the room it is holding.
+      if (globeFrame) {
+        viewBox = globeViewBox(
+          viewBox,
+          globeFrame,
+          stageSizeRef.current.width / Math.max(1, stageSizeRef.current.height),
+        );
+      }
+
+      return viewBox;
     }
 
     function paint(rawFrame: Frame, time: number, isIntroPreview: boolean): SafeBox[] {
@@ -541,13 +644,121 @@ export const CinematicStage = memo(forwardRef<StageHandle, StageProps>(function 
           : 0;
       setOpacity("snowglobe", globeReveal);
       nodes.snowglobe!.style.visibility = globeReveal > 0.01 ? "visible" : "hidden";
-      const globeX = vb.x + vb.width / 2;
-      const globeY = vb.y + vb.height * 0.5;
-      const globeS = Math.min(vb.width / 820, vb.height / 940);
-      nodes.snowglobe!.setAttribute(
-        "transform",
-        `translate(${globeX} ${globeY}) scale(${globeS})`,
-      );
+
+      /* ── the snow globe must enclose the WHOLE room ──────────────────────
+       * The glass used to be drawn at the camera's own centre with a radius of
+       * 355 art units. At the tail's viewBox that circle only reached as far as
+       * the bed and the two plushies: the window, nightstand, bookshelf and
+       * dressing table all sat outside the glass, so the finale read as "a
+       * bubble behind the furniture" rather than "the room, remembered in a
+       * globe".
+       *
+       * The fix is to derive the sphere from the room's actual art bounds and
+       * the current viewBox instead of a hardcoded radius:
+       *   1. The room's real extents in art coordinates (ROOM_ART_BOUNDS).
+       *   2. Its projected bounding box in the *current* camera frame.
+       *   3. The smallest circle enclosing that box.
+       * The glass is then drawn around that circle, and the camera pulls the
+       * viewBox out far enough that the sphere plus its wooden base fits in
+       * frame with breathing room. Nothing is cropped.
+       */
+      /*
+       * The room's extent is a *constant of the artwork*, not a function of the
+       * current camera. Deriving it from the live viewBox created a feedback
+       * loop — widening the frame revealed more wallpaper, which grew the glass,
+       * which widened the frame again — and the result was a sphere that
+       * visibly swelled during the reveal before settling. The bounds are fixed,
+       * so the glass is fixed; only its presence animates.
+       */
+      const roomBox = { ...ROOM_ART_BOUNDS };
+
+      /*
+       * The keepsake is laid out from measured extents, not a magic radius.
+       *
+       * The glass circumscribes the room's *content* box (walls are full-bleed
+       * wallpaper, so the bed/dresser/bookcase decide the bounds). The wooden
+       * plinth hangs below the glass; its own extents are added so the whole
+       * object — glass, base and the OMJ plaque — can be framed together. The
+       * previous version used a fixed r=355 circle at the camera centre, which
+       * is why the window, nightstand and bookshelf ended up outside the glass
+       * and the base fell below the bottom of the frame.
+       */
+      const roomCentre = {
+        x: roomBox.x + roomBox.width / 2,
+        y: roomBox.y + roomBox.height / 2,
+      };
+      const roomRadius = Math.hypot(roomBox.width / 2, roomBox.height / 2);
+      // A hair larger than the room so there is visibly glass around it.
+      const glassRadius = roomRadius * 1.04;
+
+      // Plinth extents in art units, mirrored from the markup below.
+      // The plinth is authored with a 274-unit half-width and an 88-unit drop.
+      // Sizing it from the glass (rather than a fixed scale) keeps the woodwork
+      // in proportion at every viewport, and stops the OMJ plaque shrinking to
+      // an illegible sliver on wide screens.
+      const PLINTH_TOP_OFFSET = 0.93 * glassRadius;
+      const PLINTH_SCALE = (glassRadius * 0.5) / 274;
+      const PLINTH_HEIGHT = 88 * PLINTH_SCALE;
+      const PLINTH_HALF_WIDTH = 274 * PLINTH_SCALE;
+
+      const keepsakeTop = roomCentre.y - glassRadius;
+      const keepsakeBottom = roomCentre.y + PLINTH_TOP_OFFSET + PLINTH_HEIGHT;
+      const keepsakeLeft = Math.min(roomCentre.x - glassRadius, roomCentre.x - PLINTH_HALF_WIDTH);
+      const keepsakeRight = Math.max(roomCentre.x + glassRadius, roomCentre.x + PLINTH_HALF_WIDTH);
+
+      const globeX = roomCentre.x;
+      // Place the group so the glass is centred on the room and the plinth
+      // hangs below it: the group origin is the glass centre.
+      const globeY = roomCentre.y;
+      const sphereRadiusArt = glassRadius;
+
+      nodes.snowglobe!.setAttribute("transform", `translate(${globeX} ${globeY})`);
+      nodes.snowglobe!.setAttribute("data-glass-radius", sphereRadiusArt.toFixed(1));
+      nodes.snowglobe!.setAttribute("data-room-width", roomBox.width.toFixed(1));
+      nodes.snowglobe!.setAttribute("data-room-height", roomBox.height.toFixed(1));
+
+      // The glass, base and plaque are authored at their own sizes, so each is
+      // scaled from the measured radius rather than the whole group being
+      // scaled (which would have blown up the woodwork too).
+      const glassScale = sphereRadiusArt / 355;
+      nodes.snowglobe!
+        .querySelector<SVGGElement>("[data-globe-glass]")
+        ?.setAttribute("transform", `scale(${glassScale.toFixed(4)})`);
+      nodes.snowglobe!
+        .querySelector<SVGGElement>("[data-globe-base]")
+        ?.setAttribute(
+          "transform",
+          `translate(0 ${PLINTH_TOP_OFFSET.toFixed(1)}) scale(${PLINTH_SCALE.toFixed(4)})`,
+        );
+
+      // Punch the surround: a large rect with the glass circle removed. Even at
+      // full reveal the interior stays readable, so the opacity is soft.
+      const voidNode = nodes.snowglobe!.querySelector<SVGPathElement>("[data-globe-void]");
+      if (voidNode) {
+        const R = 4000;
+        const hole = 355 * glassScale;
+        voidNode.setAttribute(
+          "d",
+          `M${-R} ${-R}H${R}V${R}H${-R}Z` +
+            `M0 ${-hole}A${hole} ${hole} 0 1 0 0 ${hole}A${hole} ${hole} 0 1 0 0 ${-hole}Z`,
+        );
+        voidNode.setAttribute("opacity", (0.94 * globeReveal).toFixed(3));
+      }
+
+      /*
+       * Ask the camera to frame the keepsake. `globeFrame` is consumed by
+       * `computeViewBox`, which widens (never narrows) the shot so the glass and
+       * its plinth both fit. On the following frames the film's own zoom-out
+       * continues, so the composition settles rather than snapping.
+       */
+      globeFrame = globeReveal > 0.01
+        ? {
+            left: keepsakeLeft,
+            right: keepsakeRight,
+            top: keepsakeTop,
+            bottom: keepsakeBottom,
+          }
+        : null;
 
       // Update Lyric Caption Tone from Authoritative Weather State
       lyrics.current?.setTone(auth.captionTone);
@@ -564,9 +775,11 @@ export const CinematicStage = memo(forwardRef<StageHandle, StageProps>(function 
         y2: clamp((wy + wh - vb.y) / vb.height, 0, 1),
       });
 
+      // The plushies are the subject and are protected far more strictly than
+      // furniture or the window, which are allowed to sit under a caption.
       return [
-        toNorm(frame.a.x - 68, frame.a.y - 220, 136, 235),
-        toNorm(frame.b.x - 68, frame.b.y - 220, 136, 235),
+        { ...toNorm(frame.a.x - 68, frame.a.y - 220, 136, 235), weight: 12 },
+        { ...toNorm(frame.b.x - 68, frame.b.y - 220, 136, 235), weight: 12 },
         toNorm(1220, 650, 440, 380), // Bed
         toNorm(400, 130, 710, 460),  // Window
       ];
@@ -1460,27 +1673,39 @@ export const CinematicStage = memo(forwardRef<StageHandle, StageProps>(function 
 
           {/* Ornate Snow Globe Climax Frame (Outro `tail` — SINGLE OMJ Plaque) */}
           <g data-node="snowglobe" opacity="0" style={{ visibility: "hidden" }}>
-            <circle cx="0" cy="0" r="355" fill="url(#snowglobe-halo)" opacity="0.34" />
-            <circle cx="0" cy="0" r="344" fill="none" stroke="#d5c0e8" strokeWidth="6" opacity="0.62" />
-            <circle cx="0" cy="0" r="346" fill="none" stroke="#ffffff" strokeWidth="2" opacity="0.78" />
-            <path d="M-205 -210 A 330 330 0 0 1 -20 -330" fill="none" stroke="#ffffff" strokeWidth="5" strokeLinecap="round" opacity="0.65" />
-            <ellipse cx="-115" cy="-275" rx="40" ry="15" transform="rotate(-35 -115 -275)" fill="#ffffff" opacity="0.45" />
+            {/* Outside the glass, the room darkens toward the surround. Without
+                this the finale read as "a circle drawn over a bedroom" instead
+                of "the bedroom, kept inside a glass sphere". The hole is
+                punched with evenodd in paint(), sized to the live glass. */}
+            <path data-globe-void fill="#060410" fillRule="evenodd" d="" opacity="0.94" />
 
-            <g transform="translate(0 330)">
+            {/* Glass. Authored at r=355 and scaled from the room's measured
+                bounds each frame, so it always circumscribes the bedroom. */}
+            <g data-globe-glass>
+              <circle cx="0" cy="0" r="355" fill="url(#snowglobe-halo)" opacity="0.34" />
+              <circle cx="0" cy="0" r="352" fill="none" stroke="#d5c0e8" strokeWidth="5" opacity="0.5" />
+              <circle cx="0" cy="0" r="355" fill="none" stroke="#ffffff" strokeWidth="1.6" opacity="0.62" />
+              {/* A single restrained highlight: one arc and one soft fleck. */}
+              <path d="M-250 -178 A 306 306 0 0 1 -104 -286" fill="none" stroke="#ffffff" strokeWidth="3.2" strokeLinecap="round" opacity="0.34" />
+              <ellipse cx="-196" cy="-232" rx="26" ry="9" transform="rotate(-38 -196 -232)" fill="#ffffff" opacity="0.24" />
+            </g>
+
+            <g data-globe-base transform="translate(0 330)">
               <ellipse cy="72" rx="255" ry="22" fill="#0c0a18" opacity="0.58" />
               <ellipse cy="0" rx="242" ry="24" fill="url(#wood-tier1)" stroke="#523220" strokeWidth="2" />
               <path d="M-242 0 L-266 44 C-180 62 180 62 266 44 L242 0 Z" fill="url(#wood-body)" stroke="#422515" strokeWidth="2" />
               <path d="M-256 22 C-170 38 170 38 256 22" fill="none" stroke="#f6dfa8" strokeWidth="3.5" opacity="0.78" />
               <ellipse cy="48" rx="274" ry="25" fill="url(#wood-tier1)" stroke="#523220" strokeWidth="2" />
               <path d="M-274 48 L-280 68 C-190 88 190 88 280 68 L274 48 Z" fill="#2d1910" />
-              <rect x="-58" y="28" width="116" height="26" rx="5" fill="url(#brass-plate)" stroke="#f5dfa5" strokeWidth="1.4" />
+              <rect x="-74" y="24" width="148" height="34" rx="6" fill="url(#brass-plate)" stroke="#f5dfa5" strokeWidth="1.6" />
               <text
+                data-globe-brand
                 x="0"
-                y="46"
+                y="49"
                 textAnchor="middle"
                 fontFamily="Georgia, serif"
-                fontSize="15"
-                letterSpacing="3"
+                fontSize="21"
+                letterSpacing="5"
                 fill="#382108"
                 fontWeight="bold"
               >

@@ -63,6 +63,7 @@ export function IntroScreen({
   onPlay,
   onFile,
   onTranscript,
+  onExplore,
 }: {
   snapshot: PlaybackSnapshot;
   ready: boolean;
@@ -70,6 +71,7 @@ export function IntroScreen({
   onPlay(): void;
   onFile(event: ChangeEvent<HTMLInputElement>): void;
   onTranscript(): void;
+  onExplore(): void;
 }) {
   const isEnded = snapshot.status === "ended";
 
@@ -93,6 +95,15 @@ export function IntroScreen({
         >
           <Icon name={isEnded ? "replay" : "play"} />
           <span>{isEnded ? "Replay" : "Begin"}</span>
+        </button>
+
+        <button
+          className="explore-entry"
+          onClick={onExplore}
+          aria-label="Enter the room — explore OMJ"
+        >
+          <Icon name="orbit" />
+          <span>Enter the room</span>
         </button>
       </div>
 
