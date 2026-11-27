@@ -58,6 +58,15 @@ export interface PropState {
   curtainsOpen: number; // 0 closed .. 1 open
   globeOpen: boolean;
   giftOpen: boolean;
+  /**
+   * The entry door's leaf, 0 = shut .. 1 = fully open.
+   *
+   * Stored as an angle fraction rather than a boolean because the swing has to
+   * *happen* — a door that teleports between two states reads as a bug. The
+   * engine eases this toward its target over `INTERACTION_TIMING.door`, so the
+   * panel travels about its hinge like a real one.
+   */
+  doorOpen: number;
   /** Catalogue id of the surface the room is lit from. "auto" = lamp at night. */
   lightSource: string;
 }
@@ -79,7 +88,7 @@ export type HugPreset =
   | "nosenose"
   | "wave";
 
-export type InteractionKind = "hug" | "bed";
+export type InteractionKind = "hug" | "bed" | "dance";
 
 /** The named bed pose an active bed interaction is easing into. */
 export type BedPoseName = "sit" | "lie" | "rest" | "together";
@@ -114,6 +123,19 @@ export interface InteractionState {
   /** Seconds since the interaction began. */
   elapsed: number;
   phase: InteractionPhase;
+  /**
+   * 0..1 unwind progress once the visitor has asked to stop.
+   *
+   * This is a *second, independent* clock and it has to be. Stopping used to
+   * work by writing `phase: "release"`, but `phase` is derived from `progress`
+   * on every tick, so the very next frame recomputed it to `hold` and the pair
+   * kept dancing with no way out. A stop is not a phase of the dance; it is a
+   * separate motion layered on top, so it gets its own progress.
+   *
+   * `null` means "not stopping". An array carries the release length so the
+   * unwind still honours each interaction's authored timing.
+   */
+  release?: number | null;
 }
 
 /** Authored duration per interaction, in seconds. Slow enough to read. */
@@ -137,10 +159,41 @@ export const INTERACTION_TIMING = {
     hold: 2.6,
     release: 1.0,
   },
+  /**
+   * The dance.
+   *
+   * Authored as a real beat sheet rather than a loop: notice, turn, step
+   * together, take hands, sway, one small coordinated turn, then settle into a
+   * closing pose. The hold is long because the dance is a thing to watch, not a
+   * reaction — the second click releases it.
+   */
+  dance: {
+    notice: 0.7,
+    turn: 0.8,
+    approach: 1.2,
+    contact: 0.8,
+    settle: 0.9,
+    hold: 12.0,
+    release: 1.4,
+  },
+  /**
+   * The entry door's swing, in seconds. Slow enough to read as weight — a
+   * bedroom door is a solid object, not a cabinet flap — and short enough that
+   * a click feels answered immediately.
+   */
+  door: { swing: 0.9 },
 } as const;
 
 export function createInteractionState(): InteractionState {
-  return { kind: null, preset: null, bedPose: null, progress: 0, elapsed: 0, phase: "idle" };
+  return {
+    kind: null,
+    preset: null,
+    bedPose: null,
+    progress: 0,
+    elapsed: 0,
+    phase: "idle",
+    release: null,
+  };
 }
 
 /** The idle interaction record, used everywhere a reset is needed. */
@@ -211,9 +264,27 @@ export interface CharactersState {
   yume: CharacterState;
 }
 
+/**
+ * Which environment fields the *visitor* has set by hand.
+ *
+ * The room adopts the visitor's real local time and weather when it opens, and
+ * must stop doing that the moment they choose something themselves. Without
+ * this the delivered context — which arrives asynchronously, seconds after the
+ * room is already interactive — can land on top of a choice the visitor has
+ * just made and silently put the weather back. That is the one mechanism in the
+ * app by which an unrelated interaction could appear to change the environment,
+ * so it is removed at the source rather than papered over with delays.
+ */
+export interface UserIntent {
+  weather: boolean;
+  atmosphere: boolean;
+}
+
 export interface WorldState {
   version: 1;
   mode: WorldMode;
+  /** Provenance for the environment fields; see `UserIntent`. */
+  intent: UserIntent;
   time: TimeState;
   weather: WeatherState;
   lamp: LambertState;
@@ -300,6 +371,7 @@ export function createInitialWorldState(): WorldState {
   return {
     version: 1,
     mode: "explore",
+    intent: { weather: false, atmosphere: false },
     time: { atmosphere: "night", daylight: 0.08 },
     weather: { condition: "clear", intensity: 0, clouds: 0, wind: 0.35 },
     lamp: {
@@ -312,7 +384,7 @@ export function createInitialWorldState(): WorldState {
       cove: true,
     },
     camera: { yaw: 0, pitch: 4, distance: 620 },
-    props: { curtainsOpen: 0.35, globeOpen: false, giftOpen: false, lightSource: "auto" },
+    props: { curtainsOpen: 0.35, globeOpen: false, giftOpen: false, doorOpen: 0, lightSource: "auto" },
     characters: {
       mochi: createCharacterState(-8, "calm", { x: -230, z: -320 }),
       yume: createCharacterState(10, "calm", { x: 215, z: -345 }),

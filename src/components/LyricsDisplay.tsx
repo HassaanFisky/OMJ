@@ -36,6 +36,14 @@ export interface LyricsHandle {
 
 type Quadrant = "upper-left" | "mid-left" | "upper-right" | "lower-right";
 
+/**
+ * Vertical band reserved for the playback toolbar, in CSS pixels. The toolbar
+ * is a fixed overlay so these are stable; they only need to be tall enough
+ * that a settled caption never tucks underneath it.
+ */
+const TOOLBAR_RESERVE_DESKTOP = 96;
+const TOOLBAR_RESERVE_PHONE = 132;
+
 const QUADRANTS: Array<{ id: Quadrant; x: number; y: number; align: "left" | "right" | "center" }> = [
   { id: "upper-left", x: 0.24, y: 0.16, align: "left" },
   { id: "upper-right", x: 0.76, y: 0.16, align: "right" },
@@ -49,8 +57,20 @@ const HERO_WORDS = new Set([
   "KOSHISHEIN", "INTEZAAR", "BARBAAD", "HAMDARDI", "SHIKWE",
 ]);
 
+/**
+ * Splits a token into its leading letters and any trailing punctuation, so the
+ * brush face only ever sets letters. A brushed comma beside a serif line reads
+ * as a typesetting mistake, and it also inflates the hero box.
+ */
+function splitToken(token: string): { word: string; tail: string } {
+  const match = /^([^\p{L}]*)(.*?)([^\p{L}]*)$/su.exec(token);
+  if (!match) return { word: token, tail: "" };
+  return { word: match[2] ?? token, tail: `${match[1] ?? ""}${match[3] ?? ""}` };
+}
+
 function isHeroWord(raw: string): boolean {
-  const clean = raw.replace(/[^A-Z]/gi, "").toUpperCase();
+  const clean = splitToken(raw).word.replace(/[^A-Z]/gi, "").toUpperCase();
+  if (!clean) return false;
   return HERO_WORDS.has(clean) || clean.length >= 8;
 }
 
@@ -156,8 +176,24 @@ export const LyricsDisplay = forwardRef<LyricsHandle>(
             root.append(document.createTextNode(token));
             continue;
           }
+          if (isHeroWord(token)) {
+            const { word, tail } = splitToken(token);
+            const hero = document.createElement("span");
+            hero.className = "lyric-word-hero";
+            hero.textContent = word;
+            root.append(hero);
+
+            if (tail) {
+              const rest = document.createElement("span");
+              rest.className = "lyric-word-sub";
+              rest.textContent = tail;
+              root.append(rest);
+            }
+            continue;
+          }
+
           const span = document.createElement("span");
-          span.className = isHeroWord(token) ? "lyric-word-hero" : "lyric-word-sub";
+          span.className = "lyric-word-sub";
           span.textContent = token;
           root.append(span);
         }
@@ -220,8 +256,21 @@ export const LyricsDisplay = forwardRef<LyricsHandle>(
           const minY = Math.min(halfH + yMargin, 50);
           const maxY = Math.max(100 - halfH - yMargin, 50);
 
+          /*
+           * The cinematic toolbar (play, replay, "Aa", close) occupies the top
+           * of the frame. On a phone it is a large fraction of the height, so
+           * a caption obeying only the safe zones can settle underneath it.
+           * Reserve that band explicitly; the reserve is a constant because the
+           * toolbar's height does not depend on the cue.
+           */
+          const toolbarReserve = hostWidth < 640 ? TOOLBAR_RESERVE_PHONE : TOOLBAR_RESERVE_DESKTOP;
+          const minYClamped = Math.min(
+            Math.max(minY, ((toolbarReserve / hostHeight) * 100) + halfH),
+            50,
+          );
+
           root.style.left = `${clamp(pos.leftPct, minX, maxX).toFixed(2)}%`;
-          root.style.top = `${clamp(pos.topPct, minY, maxY).toFixed(2)}%`;
+          root.style.top = `${clamp(pos.topPct, minYClamped, maxY).toFixed(2)}%`;
         }
 
         const springIn = cue && !reduced

@@ -9,7 +9,7 @@
 
 import { BED_SURFACE_Y } from "../../world/actions";
 import type { CharacterState, GazeTarget, WorldState } from "../../world/state";
-import { bedTargets, hugPosture, hugTargets } from "./choreography";
+import { bedTargets, dancePosture, danceTargets, hugPosture, hugTargets } from "./choreography";
 import type { Pose } from "../../timeline/scenes";
 import type { Camera3D } from "./renderer";
 import { project } from "./renderer";
@@ -161,9 +161,11 @@ export function framesFor(
 ): CharacterFrame[] {
   const interaction = world.interaction;
   const hugging = interaction.kind === "hug";
+  const dancing = interaction.kind === "dance";
   const onBed = interaction.kind === "bed";
 
   const posture = hugging ? hugPosture(world, interaction.progress, time, reduced) : null;
+  const dance = dancing ? dancePosture(world, interaction.progress, time, reduced) : null;
   const bed = onBed ? bedTargets(world, interaction.progress) : null;
   const feet = hugging ? hugTargets(world, interaction.progress) : null;
 
@@ -213,6 +215,30 @@ export function framesFor(
       pose.x += (id === "mochi" ? 1 : -1) * posture.lean * 6;
     }
 
+    // ── the dance ─────────────────────────────────────────────────────────
+    if (dance) {
+      const paws = dance.paws[id];
+
+      pose.head += dance.headTilt;
+      pose.closed = Math.max(pose.closed, dance.closed);
+      pose.smile = Math.max(pose.smile, dance.smile);
+
+      /*
+       * The sway is a roll plus a small lift. Applying the roll to the body
+       * rather than translating the footprint is what keeps both feet on the
+       * floorboards: the body pivots over its own planted weight instead of
+       * sliding sideways across the rug.
+       */
+      pose.rotation += dance.roll;
+      pose.x += dance.lean;
+      pose.y -= dance.bob;
+
+      pose.leftX = paws.left[0];
+      pose.leftY = paws.left[1];
+      pose.rightX = paws.right[0];
+      pose.rightY = paws.right[1];
+    }
+
     // ── bed posture ──────────────────────────────────────────────────────
     if (bed) {
       const seat = bed[id];
@@ -223,6 +249,12 @@ export function framesFor(
       // the mattress instead of sinking through it. 74° is a plush settling
       // onto its side — the previous 34° read as "leaning back", which is why
       // "Lie down" looked like standing on the bed.
+      /*
+       * The recline swings the rig about its feet, and the sign per body keeps
+       * the two heads from crowding the same point of the mattress. Flipping it
+       * was tried: it swung both bodies clean off the side of the bed, because
+       * the root sits at the foot of the body rather than at its middle.
+       */
       pose.rotation += (id === "mochi" ? 1 : -1) * seat.lie * 74;
       pose.head += seat.lie * -6;
       pose.closed = Math.max(pose.closed, seat.lie * 0.5);
@@ -285,9 +317,13 @@ export function placeCharacter(
   const seatedRootY = BED_SURFACE_Y - hipLocal;
 
   const seatLift = anchor ? anchor.seated * (seatedRootY - standingRootY) : 0;
-  // Lying settles a little lower again, so the body rests on the quilt instead
-  // of hovering a hand's width above it.
-  const lieDrop = anchor ? anchor.lie * 12 : 0;
+  /*
+   * Lying settles lower again, so the body rests *on* the quilt instead of
+   * hovering above it. The reclined rig's pivot is the hips rather than the
+   * feet, so the old 12-unit drop left both plushies visibly floating over the
+   * mattress once they were genuinely horizontal.
+   */
+  const lieDrop = anchor ? anchor.lie * 26 : 0;
 
   const rootWorld: Vec3 = {
     x,

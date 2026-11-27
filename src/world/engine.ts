@@ -19,12 +19,14 @@ import {
   resolveCameraPose,
   type WorldAction,
 } from "./actions";
-import { bedTargets, hugTargets } from "../stage/explore/choreography";
+import { bedTargets, danceTargets, hugTargets } from "../stage/explore/choreography";
 import {
   CAMERA_LIMITS,
   cloneWorldState,
   createInitialWorldState,
+  createInteractionState,
   interactionDuration,
+  INTERACTION_TIMING,
   ORBIT_FOCUS,
   ROOM_BOUNDS,
   phaseForProgress,
@@ -149,6 +151,7 @@ export class WorldEngine {
 
     const interaction = stepInteraction(state.interaction, seconds);
     const lamp = stepLamp(state.lamp, seconds);
+    const props = stepDoor(state.props, seconds);
 
     // Choreography first: it decides the footprint and the posture targets for
     // this instant. The characters are then smoothed *toward* those targets, so
@@ -163,7 +166,8 @@ export class WorldEngine {
       posed.mochi !== state.characters.mochi ||
       posed.yume !== state.characters.yume ||
       interaction !== state.interaction ||
-      lamp !== state.lamp;
+      lamp !== state.lamp ||
+      props !== state.props;
 
     if (!changed) {
       return;
@@ -174,6 +178,7 @@ export class WorldEngine {
       characters: { mochi: posed.mochi, yume: posed.yume },
       interaction,
       lamp,
+      props,
     };
 
     this.publish();
@@ -296,6 +301,28 @@ function applyInteractionPose(
     };
   }
 
+  if (interaction.kind === "dance") {
+    const target = danceTargets(state, progress);
+    return {
+      mochi: {
+        ...mochiBase,
+        x: target.mochi.x,
+        z: target.mochi.z,
+        desiredYaw: target.mochi.yaw,
+        seated: 0,
+        lie: 0,
+      },
+      yume: {
+        ...yumeBase,
+        x: target.yume.x,
+        z: target.yume.z,
+        desiredYaw: target.yume.yaw,
+        seated: 0,
+        lie: 0,
+      },
+    };
+  }
+
   const bed = bedTargets(state, progress);
   return {
     mochi: {
@@ -320,6 +347,39 @@ function applyInteractionPose(
 /** Pure: advance the interaction clock and re-derive its phase. */
 export function stepInteraction(interaction: InteractionState, dt: number): InteractionState {
   if (interaction.kind === null) return interaction;
+
+  /*
+   * The unwind, when the visitor has asked to stop.
+   *
+   * It runs on its own clock (see `InteractionState.release`) and takes as long
+   * as the interaction's authored release, so stopping is a graceful return
+   * rather than a cut. While it runs, `progress` keeps ticking so the pair can
+   * be eased *out* of whatever pose they were holding; when it lands, the
+   * interaction is cleared and the room is idle again — which is what makes the
+   * dance toggle a real toggle.
+   */
+  if (typeof interaction.release === "number") {
+    const releaseLength = INTERACTION_TIMING[interaction.kind].release;
+    const release = Math.min(1, interaction.release + dt / releaseLength);
+
+    if (release >= 1) return createInteractionState();
+
+    return {
+      ...interaction,
+      release,
+      elapsed: interaction.elapsed + dt,
+      progress: Math.min(1, interaction.progress + dt / releaseLength),
+      phase: "release",
+    };
+  }
+
+  /*
+   * Holding the final pose is the design, not an oversight: a hug is a moment
+   * the visitor leaves on their own terms, and the brief asks the dance to land
+   * on a lovely final pose. So reaching the end of the authored timing does
+   * *not* clear the interaction — the pair stays where the choreography left
+   * them until the visitor asks for neutral (or stops the dance).
+   */
   if (interaction.progress >= 1) return interaction;
 
   const duration = interactionDuration(interaction.kind);
@@ -347,6 +407,34 @@ export function stepLamp(
   }
 
   return { ...lamp, kerosene, kelvin };
+}
+
+/**
+ * Pure: ease the entry door's leaf toward its target.
+ *
+ * The reducer only records *whether* the door should be open; this is what
+ * makes the panel travel. Easing here rather than in the component keeps the
+ * swing in the same clock as the characters and the lamp, so a door, a hug and
+ * a brightness ramp all advance on exactly one timeline.
+ *
+ * A true end-stop is written when we arrive, so the leaf rests at exactly 0 or
+ * 1 instead of asymptotically approaching it and leaving a hairline gap.
+ */
+export function stepDoor(props: WorldState["props"], dt: number): WorldState["props"] {
+  const target = props.doorOpen > 0.5 ? 1 : 0;
+  const current = props.doorOpen;
+  if (current === target) return props;
+
+  // Rate is expressed as "fraction of the travel per second" so the swing takes
+  // roughly `INTERACTION_TIMING.door.swing` seconds from shut to open.
+  const rate = 1 / INTERACTION_TIMING.door.swing;
+  const step = rate * dt;
+  const next =
+    Math.abs(target - current) <= step
+      ? target
+      : current + Math.sign(target - current) * step;
+
+  return { ...props, doorOpen: next };
 }
 
 function stepCharacter(character: CharacterState, dt: number): CharacterState {

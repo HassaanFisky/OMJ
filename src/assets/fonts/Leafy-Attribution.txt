@@ -1,0 +1,38 @@
+Leafy Brush Font
+================
+
+Design:     Ieva Mezule (brushed by hand)
+Digitizing: Krisjanis Mezulis / Wild Ones Studio
+Formats:    OTF (print), WOFF (web)
+Glyphs:     95 characters, basic Latin set
+Source:     https://wildtype.design/product/leafy-free-brush-font/
+Released:   2017
+License:    Free for personal and commercial use (Wildtype / Wild Ones Studio).
+
+WHERE THE FILE IS EXPECTED
+--------------------------
+  src/assets/fonts/Leafy.woff
+
+STATUS IN THIS REPOSITORY: NOT BUNDLED YET.
+-------------------------------------------
+The font file itself is not present. It could not be retrieved inside the
+build environment:
+
+  * Leafy is not published to npm, so it cannot be installed as a package.
+  * The only copy reachable from the build environment's network allow-list
+    is stored in GitHub LFS, and the real bytes live behind an LFS media host
+    that the sandbox cannot reach (only the 130-byte pointer downloads).
+
+It has NOT been substituted, faked or approximated, and no other brush font
+has been presented as Leafy.
+
+HOW TO ACTIVATE IT
+------------------
+1. Download Leafy.woff from wildtype.design (free, personal & commercial).
+2. Drop it in this directory as exactly:  src/assets/fonts/Leafy.woff
+3. Nothing else to change — src/styles.css already declares the @font-face
+   for family "Leafy" pointing at that path.
+
+Until then, hero lyric words use the declared fallback stack (Caveat, then
+Georgia) and the layout, sizing and animation are already built to the
+metrics Leafy will use.

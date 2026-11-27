@@ -41,6 +41,14 @@ export interface FaceGroup {
   /** World position used for depth ordering against the characters. */
   anchor: Vec3;
   faces: Face[];
+  /**
+   * Optional world-space rotation applied to every face in this group, about
+   * the Y axis through `pivot`. Used by the door, which has to swing about its
+   * hinge — baking that as pre-rotated static faces would mean rebuilding the
+   * whole scene graph on every animation frame, and would also break the
+   * painter's ordering, which assumes faces do not move between sorts.
+   */
+  hinged?: { pivot: Vec3; angle: number };
   /** Interactive hotspot centre, if the group is clickable. */
   hotspot?: Vec3 & { radius: number; label: string; objectId: string };
 }
@@ -321,6 +329,129 @@ const SPHERE_FACETS = (() => {
 export const LAMP_POSITION = v(-520, 470, -250);
 export const GLOBE_POSITION = v(350, 236, -10);
 export const GIFT_POSITION = v(-395, 74, -25);
+
+/* ── the door ─────────────────────────────────────────────────────────────── */
+
+/**
+ * A real entry door on the +Z (bookshelf) wall.
+ *
+ * It sits on the largest uninterrupted stretch of that wall. The bookshelf is
+ * on the -X half, the reading chair and the framed art are on the +X half, and
+ * the space between them — around world x ≈ 60 — is the only place a door can
+ * go without displacing furniture that already has a hotspot. That is also the
+ * architecturally sensible spot: opposite the window, so the room has a proper
+ * threshold rather than a decorated dead end.
+ *
+ * The opening is cut as a real recess: side jambs going back into the wall,
+ * a head jamb, and an architrave standing proud on the room side. The leaf is
+ * hinged on its -X stile and swings inward, into the room.
+ */
+export const DOOR = {
+  /** Centre of the opening on the +Z wall. */
+  x: 60,
+  /** Clear opening, in world units. */
+  width: 210,
+  height: 560,
+  /** How far the wall is recessed before the frame starts. */
+  reveal: 54,
+  /** Wall depth the leaf and casing live against. */
+  face: 700,
+  /**
+   * How far the leaf travels, in radians. A shade over ninety degrees: enough
+   * that the opening reads as clearly open from every camera angle, short of
+   * flat against the wall, which would look like a shutter rather than a door.
+   */
+  swing: 1.66,
+} as const;
+
+/** Exported for the stage, which maps world state onto the leaf's angle. */
+export const DOOR_SWING = DOOR.swing;
+
+const DOOR_LEAF_COLOR = "#6b4a31";
+const DOOR_CASING_COLOR = "#7a5638";
+const DOOR_PANEL_COLOR = "#5c3e29";
+
+/**
+ * The door leaf and its furniture, authored at angle 0 (closed) in world space.
+ * Every face is tagged `group: "door"` so the renderer can treat the swing as
+ * one object.
+ */
+export function buildDoor(angle: number): FaceGroup[] {
+  const { x, width, height } = DOOR;
+  const faceZ = DOOR.face - 6;
+  const left = x - width / 2;
+  const right = x + width / 2;
+  const leafDepth = 22;
+  const backZ = DOOR.face - DOOR.reveal;
+
+  /*
+   * The casing is built as its own, immovable group. It must not swing with the
+   * leaf: an architrave that rotated with the door would tear itself out of the
+   * wall, which is exactly the kind of impossible joinery that makes a room
+   * look like a cardboard set.
+   */
+  const frameFaces: Face[] = [
+    // Side jambs, receding from the room face into the wall.
+    ...box("door-frame", v(left - 26, 0, DOOR.face), v(left, height + 30, backZ), DOOR_CASING_COLOR),
+    ...box("door-frame", v(right, 0, DOOR.face), v(right + 26, height + 30, backZ), DOOR_CASING_COLOR),
+    // Head jamb.
+    ...box("door-frame", v(left - 26, height, DOOR.face), v(right + 26, height + 30, backZ), DOOR_CASING_COLOR),
+    // Architrave: a proud band on the room side, so the opening has shadow.
+    ...box("door-frame", v(left - 44, 0, faceZ), v(left - 20, height + 48, faceZ - 10), DOOR_CASING_COLOR, { skipBottom: true }),
+    ...box("door-frame", v(right + 20, 0, faceZ), v(right + 44, height + 48, faceZ - 10), DOOR_CASING_COLOR, { skipBottom: true }),
+    ...box("door-frame", v(left - 44, height + 26, faceZ), v(right + 44, height + 48, faceZ - 10), DOOR_CASING_COLOR, { skipBottom: true }),
+    // A dark threshold plate.
+    ...box("door-frame", v(left, -1, faceZ), v(right, 4, faceZ - 34), "#3a271c", { skipBottom: true }),
+    /*
+     * The hallway behind the opening. Without a surface back here the doorway
+     * would show the bedroom's own wallpaper through the hole and immediately
+     * read as a painted rectangle. A deep, almost-black quad just inside the
+     * reveal is enough to make the opening feel like it leads somewhere.
+     */
+    face(
+      "door-frame",
+      [v(left, 0, backZ - 2), v(right, 0, backZ - 2), v(right, height + 28, backZ - 2), v(left, height + 28, backZ - 2)],
+      "#1b1522",
+      "accent",
+      v(0, 0, -1),
+      { emissive: 0.04 },
+    ),
+  ];
+
+  const leafFaces: Face[] = [
+    // Body of the leaf.
+    ...box("door", v(left, 8, faceZ), v(right, height, faceZ - leafDepth), DOOR_LEAF_COLOR),
+    // Two raised panels on the room side.
+    ...box("door", v(left + 26, 300, faceZ - leafDepth - 7), v(right - 26, height - 46, faceZ - leafDepth), DOOR_PANEL_COLOR, { skipBottom: true }),
+    ...box("door", v(left + 26, 60, faceZ - leafDepth - 7), v(right - 26, 262, faceZ - leafDepth), DOOR_PANEL_COLOR, { skipBottom: true }),
+    // Handle on the latch stile, room side: a rose and a lever.
+    ...box("door", v(right - 40, 300, faceZ - leafDepth - 12), v(right - 26, 336, faceZ - leafDepth - 4), "#c9a978", { skipBottom: true }),
+    ...box("door", v(right - 62, 314, faceZ - leafDepth - 11), v(right - 26, 324, faceZ - leafDepth - 8), "#e0c193", { skipBottom: true }),
+  ];
+
+  return [
+    {
+      id: "door-frame",
+      anchor: v(x, height / 2, backZ),
+      faces: frameFaces,
+    },
+    {
+      id: "door",
+      anchor: v(x, height / 2, faceZ),
+      faces: leafFaces,
+      // Hinge on the -X stile; the leaf rotates about this vertical line.
+      hinged: { pivot: v(left, 0, faceZ), angle },
+      hotspot: {
+        x,
+        y: height / 2,
+        z: DOOR.face - 40,
+        radius: 250,
+        label: "The door",
+        objectId: "door",
+      },
+    },
+  ];
+}
 
 export function buildFurniture(): FaceGroup[] {
   const { width: W, depth: D } = SHELL;
@@ -646,6 +777,54 @@ export function windowPanes(): WindowPane[] {
 }
 
 /**
+ * Curtain panel geometry, shared by the scene builder and the weather painter.
+ *
+ * The weather canvas is a 2D overlay drawn *above* the whole room, so anything
+ * it paints inside the window rectangle also lands on top of any curtain panel
+ * hanging in front of the glass. Returning the panels here lets the painter
+ * subtract their projected footprint and keep the fabric opaque — which is what
+ * "closed curtains hide the exterior" actually requires.
+ */
+export function curtainPanels(open: number): {
+  min: Vec3;
+  max: Vec3;
+  color: string;
+}[] {
+  const { center, width, height } = WINDOW_FRAME;
+  const z = center.z + 4;
+  const left = center.x - width / 2;
+  const right = center.x + width / 2;
+  const top = center.y + height / 2;
+  const bottom = center.y - height / 2;
+  const halfOpening = width / 2;
+  const panelWidth = halfOpening * (1.04 - open * 0.62);
+  const slide = open * (halfOpening * 0.92);
+
+  return [
+    {
+      min: v(left - 46 - slide, bottom - 10, z + 16),
+      max: v(left - 46 + panelWidth - slide, top + 34, z + 42),
+      color: "#7b5b76",
+    },
+    {
+      min: v(left - 46 - slide + panelWidth * 0.22, bottom - 10, z + 20),
+      max: v(left - 46 + panelWidth - slide, top + 34, z + 34),
+      color: "#8b6a85",
+    },
+    {
+      min: v(right + 46 - panelWidth + slide, bottom - 10, z + 16),
+      max: v(right + 46 + slide, top + 34, z + 42),
+      color: "#7b5b76",
+    },
+    {
+      min: v(right + 46 - panelWidth * 0.22 + slide, bottom - 10, z + 20),
+      max: v(right + 46, top + 34, z + 34),
+      color: "#8b6a85",
+    },
+  ];
+}
+
+/**
  * Window assembly. Panes carry `kind: "sky"` so the renderer fills them with
  * the live atmosphere gradient instead of a lit surface colour.
  */
@@ -697,14 +876,31 @@ export function buildWindow(curtainsOpen: number, fairyLights: boolean): FaceGro
     }),
   );
 
-  // Curtains: two vertical slats that slide outward as they open.
+  /*
+   * Curtains.
+   *
+   * These are two panels that *meet* when closed and gather at the jambs when
+   * open. The previous width (120 units on a 520-unit window) left the middle
+   * of the glass uncovered no matter what, so "closed" curtains still showed a
+   * fully readable sky, clouds and rain through the gap — the exterior was
+   * never actually occluded.
+   *
+   * Each panel is now just over half the opening, and they slide out past the
+   * reveal as they open, so closed means closed and open means the whole pane
+   * is visible. A small seam is left at the centre, which is the one gap real
+   * curtains do leave.
+   */
   const open = Math.max(0, Math.min(1, curtainsOpen));
-  const curtainWidth = 120 * (1 - open * 0.72);
-  const slide = open * 150;
-
+  const halfOpening = width / 2;
+  // 0 closed → each panel covers 52% of the opening (2% overlap at the seam).
+  // 1 open   → each panel gathers to 30% and slides clear of the glass.
   groups.push(
-    ...box("curtains", v(left - 40 - slide, bottom - 10, z + 18), v(left - 40 + curtainWidth - slide, top + 34, z + 40), "#7b5b76", { skipBottom: true, kind: "accent" }),
-    ...box("curtains", v(right + 40 - curtainWidth + slide, bottom - 10, z + 18), v(right + 40 + slide, top + 34, z + 40), "#7b5b76", { skipBottom: true, kind: "accent" }),
+    // Deep folds: two overlapping panels each, so the fabric reads as gathered
+    // cloth rather than a flat shutter. Geometry comes from `curtainPanels()` so
+    // the weather painter can occlude exactly the same region.
+    ...curtainPanels(open).flatMap((panel) =>
+      box("curtains", panel.min, panel.max, panel.color, { skipBottom: true, kind: "accent" }),
+    ),
   );
 
   if (fairyLights) {

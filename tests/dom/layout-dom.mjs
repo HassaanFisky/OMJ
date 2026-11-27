@@ -104,7 +104,7 @@ for (const viewport of VIEWPORTS) {
   check(`${viewport.name}: scales without cropping input`, () =>
     svg?.getAttribute("preserveAspectRatio") === "xMidYMid slice" || `got ${svg?.getAttribute("preserveAspectRatio")}`,
   );
-  check(`${viewport.name}: command bar present`, () => Boolean($(".command-input")));
+  check(`${viewport.name}: command UI removed`, () => !$(".command-input") && !$(".command-bar"));
   check(`${viewport.name}: hotspots reachable`, () => $$("[data-hotspot]").length >= 6);
   check(`${viewport.name}: every interactive control has a label`, () =>
     $$("[data-hotspot]").every((n) => (n.getAttribute("aria-label") || "").length > 3) || "unlabelled hotspot",

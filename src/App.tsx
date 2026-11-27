@@ -9,7 +9,6 @@ import {
   type KeyboardEvent,
 } from "react";
 import { AudioController } from "./audio/AudioController";
-import { CommandBar } from "./components/CommandBar";
 import { ExploreHud } from "./components/ExploreHud";
 import { ExploreStage, type ExploreHandle } from "./components/ExploreStage";
 import { CinematicStage, type StageHandle } from "./components/CinematicStage";
@@ -27,7 +26,6 @@ import {
 } from "./timeline/score";
 import { describeAction, type WorldAction } from "./world/actions";
 import { WorldEngine } from "./world/engine";
-import { parseWorldCommand, type ParseResult } from "./world/nlCommands";
 import type { WorldState } from "./world/state";
 
 /**
@@ -57,6 +55,12 @@ function useReducedMotion() {
 
   return reduced;
 }
+
+/**
+ * How long the film's last frame is held after the audio ends. Long enough for
+ * the bubble to be looked at, short enough not to feel stuck.
+ */
+const FINALE_HOLD_MS = 4200;
 
 export default function App() {
   const [controller] = useState(() => new AudioController());
@@ -160,14 +164,43 @@ export default function App() {
         ? openingContext.weather.condition
         : "clear";
 
-    engine.dispatch({ id: "adopt-atmosphere", type: "setAtmosphere", atmosphere });
-    engine.dispatch({ id: "adopt-weather", type: "setWeather", condition });
-  }, [engine, openingContext]);
+    /*
+     * One action, and one that yields to the visitor.
+     *
+     * This used to fire `setWeather`/`setAtmosphere` — the same actions the
+     * HUD dispatches — from an effect keyed on `openingContext`. Two defects
+     * followed: the effect re-ran whenever that context object changed, and the
+     * reducer could not tell ambient context from a deliberate choice, so a
+     * late-arriving reading could overwrite what the visitor had just picked.
+     * `adoptEnvironment` is gated on `state.intent`, so this can never happen.
+     */
+    engine.dispatch({
+      id: "adopt-environment",
+      type: "adoptEnvironment",
+      atmosphere,
+      condition,
+    });
+  }, [engine]);
 
+  /*
+   * The finished film is a keepsake, not a page. Snapping straight back to the
+   * entrance the instant the audio stops would throw away the ending's last
+   * composition — the moment the whole room becomes a glass bubble — before
+   * anyone could look at it.
+   *
+   * So the final frame is held, then the entrance fades in over it. The hold is
+   * generous enough to read as deliberate and short enough that nobody is stuck
+   * waiting for REPLAY. Reduced motion is unaffected: the same frame is shown
+   * for the same time, just without any travelling to get there.
+   */
   useEffect(() => {
-    if (snapshot.status === "ended" && screen === "cinematic") {
+    if (snapshot.status !== "ended" || screen !== "cinematic") return;
+
+    const hold = window.setTimeout(() => {
       setScreen("entrance");
-    }
+    }, FINALE_HOLD_MS);
+
+    return () => window.clearTimeout(hold);
   }, [snapshot.status, screen]);
 
   // Exactly one animation clock is ever running: the engine ticks only while
@@ -244,18 +277,28 @@ export default function App() {
     [engine],
   );
 
-  const runCommand = useCallback(
-    (result: ParseResult) => {
-      result.actions.forEach((action) => engine.dispatch(action));
+  /**
+   * Bring the soundtrack up for the dance.
+   *
+   * The dance is the room's only performance, and it was silently dancing to
+   * nothing. This goes through the one existing `AudioController` — never a
+   * second element — and only starts playback when it is not already running,
+   * so a song mid-way through is never restarted. It resolves to whether sound
+   * is genuinely audible, letting the room tell the truth when a browser
+   * refuses autoplay instead of pretending music is playing.
+   */
+  const ensureMusic = useCallback(async () => {
+    if (controller.getSnapshot().status === "playing") return true;
 
-      setAnnouncement(
-        result.status === "ok"
-          ? result.actions.map(describeAction).join(" ")
-          : result.reply,
-      );
-    },
-    [engine],
-  );
+    const playing = await controller.play();
+    if (!playing) return false;
+
+    // Leaving the entrance for the film would be wrong here: the visitor asked
+    // for a dance in the room, not for the cinematic. The score simply plays
+    // underneath the room. Start from the top only if the track had ended.
+    if (controller.getSnapshot().status === "ended") controller.seek(0);
+    return controller.getSnapshot().status === "playing" || playing;
+  }, [controller]);
 
   function keyboard(event: KeyboardEvent<HTMLElement>) {
     if (textOpen) return;
@@ -324,6 +367,8 @@ export default function App() {
           reduced={exploreReduced}
           onAnnounce={setAnnouncement}
           onDispatch={dispatch}
+          onEnsureMusic={ensureMusic}
+          musicPlaying={snapshot.status === "playing"}
         />
       ) : (
         <CinematicStage
@@ -412,7 +457,6 @@ export default function App() {
             onToggleReduced={() => setMotionOverride((prev) => !(prev ?? systemReduced))}
           />
 
-          <CommandBar world={world} onRun={runCommand} parse={parseWorldCommand} />
         </>
       )}
 

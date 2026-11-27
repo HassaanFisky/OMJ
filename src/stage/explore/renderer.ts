@@ -20,7 +20,9 @@ import { ORBIT_FOCUS, resolveLighting, type WorldState } from "../../world/state
 import {
   dot,
   normalize,
+  curtainPanels,
   WINDOW_FRAME,
+  windowPanes,
   type Face,
   type FaceGroup,
   type SurfaceKind,
@@ -582,7 +584,47 @@ export function collectFaces(input: SceneRenderInput): RenderItem[] {
   };
 
   shell.forEach(push);
-  groups.forEach((group) => group.faces.forEach(push));
+
+  groups.forEach((group) => {
+    if (!group.hinged) {
+      group.faces.forEach(push);
+      return;
+    }
+
+    /*
+     * A hinged group (the door) is rotated once, here, rather than being
+     * rebuilt whenever the swing changes. Rotating about the pivot line keeps
+     * the stile on its hinges and swings the rest of the leaf through an arc,
+     * which is what makes the motion read as a real door instead of a panel
+     * sliding sideways. Normals rotate with the geometry, so lighting stays
+     * correct as the leaf turns away from the room.
+     */
+    const { pivot, angle } = group.hinged;
+    const cos = Math.cos(angle);
+    const sin = Math.sin(angle);
+
+    const turn = (p: Vec3): Vec3 => {
+      const dx = p.x - pivot.x;
+      const dz = p.z - pivot.z;
+      return {
+        x: pivot.x + dx * cos + dz * sin,
+        y: p.y,
+        z: pivot.z - dx * sin + dz * cos,
+      };
+    };
+
+    group.faces.forEach((f) => {
+      push({
+        ...f,
+        pts: [turn(f.pts[0]), turn(f.pts[1]), turn(f.pts[2]), turn(f.pts[3])],
+        normal: {
+          x: f.normal.x * cos + f.normal.z * sin,
+          y: f.normal.y,
+          z: -f.normal.x * sin + f.normal.z * cos,
+        },
+      });
+    });
+  });
 
   // Characters composite into the same painter stream.
   for (const character of input.characterMarkup ?? []) {
@@ -604,10 +646,27 @@ export interface WindowRect {
   width: number;
   height: number;
   rotate: number;
+  /**
+   * Screen-space rectangles of the individual glass panes.
+   *
+   * `x/y/width/height` above is the bounding box of the whole opening, which
+   * includes the mullions *and* the wall reveal either side of the glass. Any
+   * weather clipped to it therefore spills onto the curtains and the wall — so
+   * precipitation is clipped to these instead.
+   */
+  panes: { x: number; y: number; width: number; height: number }[];
+  /**
+   * Screen-space footprint of the curtain panels in front of the glass.
+   *
+   * The weather canvas is an overlay above the entire room, so precipitation
+   * painted inside the pane rects still covers any curtain hanging there.
+   * Subtracting these keeps the fabric between the viewer and the weather.
+   */
+  curtains: { x: number; y: number; width: number; height: number }[];
 }
 
 /** Screen-space rectangle of the window panes, used to clip the weather. */
-export function projectWindow(camera: Camera3D): WindowRect | null {
+export function projectWindow(camera: Camera3D, curtainsOpen = 0): WindowRect | null {
   const z = WINDOW_FRAME.center.z + 8;
   const halfW = WINDOW_FRAME.width / 2;
   const halfH = WINDOW_FRAME.height / 2;
@@ -637,7 +696,51 @@ export function projectWindow(camera: Camera3D): WindowRect | null {
   // derive a rotation cue from the difference between the corner depths.
   const rotate = Math.atan2(projected[1]!.y - projected[0]!.y, projected[1]!.x - projected[0]!.x) * (180 / Math.PI);
 
-  return { x: minX, y: minY, width, height, rotate };
+  // Project each glass pane separately: the mullions must never be weather.
+  const panes = windowPanes()
+    .map((pane) => {
+      const flat = [
+        { x: pane.minX, y: pane.minY, z },
+        { x: pane.maxX, y: pane.minY, z },
+        { x: pane.maxX, y: pane.maxY, z },
+        { x: pane.minX, y: pane.maxY, z },
+      ].map((corner) => project(corner, camera));
+      if (flat.some((p) => !p.visible)) return null;
+      const px = flat.map((p) => p.x);
+      const py = flat.map((p) => p.y);
+      const paneMinX = Math.min(...px);
+      const paneMinY = Math.min(...py);
+      return {
+        x: paneMinX,
+        y: paneMinY,
+        width: Math.max(...px) - paneMinX,
+        height: Math.max(...py) - paneMinY,
+      };
+    })
+    .filter((pane): pane is { x: number; y: number; width: number; height: number } => pane !== null);
+
+  if (panes.length === 0) return null;
+
+  const projectBox = (min: Vec3, max: Vec3) => {
+    const corners = [
+      { x: min.x, y: min.y, z: min.z },
+      { x: max.x, y: min.y, z: min.z },
+      { x: max.x, y: max.y, z: max.z },
+      { x: min.x, y: max.y, z: max.z },
+    ].map((corner) => project(corner, camera));
+    if (corners.some((p) => !p.visible)) return null;
+    const px = corners.map((p) => p.x);
+    const py = corners.map((p) => p.y);
+    const bx = Math.min(...px);
+    const by = Math.min(...py);
+    return { x: bx, y: by, width: Math.max(...px) - bx, height: Math.max(...py) - by };
+  };
+
+  const curtains = curtainPanels(curtainsOpen)
+    .map((panel) => projectBox(panel.min, panel.max))
+    .filter((box): box is { x: number; y: number; width: number; height: number } => box !== null);
+
+  return { x: minX, y: minY, width, height, rotate, panes, curtains };
 }
 
 /** Orbit smoothing helper shared by the component and the tests. */

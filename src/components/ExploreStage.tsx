@@ -16,7 +16,9 @@ import { CAMERA_PRESETS, type WorldAction } from "../world/actions";
 import type { WorldEngine } from "../world/engine";
 import { resolveLighting, type WorldState } from "../world/state";
 import {
+  buildDoor,
   buildExploreScene,
+  DOOR_SWING,
   buildWindow,
   CHARACTER_ANCHORS,
   GLOBE_POSITION,
@@ -50,6 +52,18 @@ export interface ExploreStageProps {
   reduced: boolean;
   onAnnounce(message: string): void;
   onDispatch(action: WorldAction): void;
+  /**
+   * Start the one authorized soundtrack, if it is not already playing.
+   *
+   * The dance is the only *performance* in the room, and a silent performance
+   * was the whole defect: the pair swayed to nothing. This is a callback rather
+   * than a second player so there is exactly one audio element, one clock and
+   * one set of browser permissions involved. It resolves `true` when music is
+   * actually audible, so the caller never has to assume.
+   */
+  onEnsureMusic?: () => Promise<boolean>;
+  /** True while the soundtrack is genuinely playing. */
+  musicPlaying?: boolean;
 }
 
 interface Hotspot {
@@ -107,7 +121,7 @@ function useElementSize(element: React.RefObject<HTMLDivElement | null>) {
 }
 
 export const ExploreStage = forwardRef<ExploreHandle, ExploreStageProps>(
-  function ExploreStage({ engine, reduced, onAnnounce, onDispatch }, ref) {
+  function ExploreStage({ engine, reduced, onAnnounce, onDispatch, onEnsureMusic, musicPlaying }, ref) {
     const root = useRef<HTMLDivElement>(null);
     const svgRef = useRef<SVGSVGElement>(null);
     const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -284,7 +298,18 @@ export const ExploreStage = forwardRef<ExploreHandle, ExploreStageProps>(
       const camera = createExploreCamera(world, stageCenter.x, stageCenter.y, size.width);
       const rig = buildLightRig(world);
       const windowGroup = buildWindow(world.props.curtainsOpen, world.lamp.fairyLights);
-      const groups = [...scene.furniture, windowGroup];
+      /*
+       * The door's leaf angle comes straight from world state, so the swing is
+       * driven by the same reducer as every other object in the room. The leaf
+       * opens inward, toward -Z, about its -X stile.
+       */
+            /*
+       * Positive rotation swings the leaf *inward*, toward the room. The
+       * opposite sign sent it straight out through the wall, where it was
+       * invisible and left the doorway looking like an empty hole.
+       */
+      const doorGroup = buildDoor(world.props.doorOpen * DOOR_SWING);
+      const groups = [...scene.furniture, ...doorGroup, windowGroup];
       const frames = framesFor(world, camera, performance.now() / 1000, reduced);
       const lighting = resolveLighting(world);
       return { camera, rig, groups, frames, lighting, windowGroup };
@@ -515,7 +540,9 @@ export const ExploreStage = forwardRef<ExploreHandle, ExploreStageProps>(
             ? "Snow globe — close"
             : group.id === "gift" && world.props.giftOpen
               ? "Gift — close"
-              : hotspot.label,
+              : group.id === "door" && world.props.doorOpen > 0.5
+                ? "The door — close"
+                : hotspot.label,
           hotspot,
           hotspot.radius,
           "prop",
@@ -558,7 +585,7 @@ export const ExploreStage = forwardRef<ExploreHandle, ExploreStageProps>(
       paintHotspotNodes(nextHotspots);
 
       // Weather.
-      const windowRect = projectWindow(camera);
+      const windowRect = projectWindow(camera, world.props.curtainsOpen);
       // The globe's glass is drawn as a room object; the flakes inside it are
       // painted on the weather canvas, so hand the painter the projected centre.
       const globeGroup = groups.find((group) => group.id === "globe");
@@ -712,8 +739,49 @@ export const ExploreStage = forwardRef<ExploreHandle, ExploreStageProps>(
         // A pointer that travelled is an orbit, not a tap.
         if (dragRef.current.moved > 8) return;
         if (id === "mochi" || id === "yume") {
-          onDispatch({ id: `hotspot-wave-${id}`, type: "wave", who: id });
-          onAnnounce(id === "mochi" ? "Mochi waves hello." : "Yume waves hello.");
+          /*
+           * Touching either plush starts the dance — the same action from
+           * either body, because the dance belongs to the pair. A second touch
+           * stops it, and stopping unwinds through the release phase rather
+           * than cutting, so they part hands and step back instead of snapping.
+           */
+          const dancing = worldRef.current.interaction.kind === "dance";
+
+          if (dancing) {
+            onDispatch({ id: `hotspot-dance-${id}`, type: "dance", on: false });
+            onAnnounce("The dance winds down and they settle together.");
+            return;
+          }
+
+          /*
+           * The dance is a performance, so it brings its own music. The
+           * soundtrack is started through the shared controller — never a
+           * second player — and only if it is not already playing, so asking
+           * the pair to dance mid-song resumes the choreography without
+           * restarting the track under the audience.
+           *
+           * The action is dispatched immediately rather than after the audio
+           * promise resolves: a browser that blocks playback must not turn a
+           * click into a dead button. If the sound is refused, the room says so
+           * and offers the real playback control instead of pretending.
+           */
+          onDispatch({ id: `hotspot-dance-${id}`, type: "dance", on: true });
+
+          const starter = onEnsureMusic;
+          if (!starter) {
+            onAnnounce(
+              `${id === "mochi" ? "Mochi" : "Yume"} takes the other's paw — they start to dance.`,
+            );
+            return;
+          }
+
+          void starter().then((audible) => {
+            onAnnounce(
+              audible
+                ? "The song comes up and they dance together."
+                : "They dance, but the soundtrack could not start — press play in the menu to hear it.",
+            );
+          });
           return;
         }
 
@@ -730,6 +798,16 @@ export const ExploreStage = forwardRef<ExploreHandle, ExploreStageProps>(
             const open = worldRef.current.props.curtainsOpen < 0.5;
             onDispatch({ id: `hotspot-window`, type: "light", source: "window", on: open });
             onAnnounce(open ? "The curtains part — look outside." : "The curtains close.");
+            break;
+          }
+          case "door": {
+            const opening = worldRef.current.props.doorOpen < 0.5;
+            onDispatch({ id: "hotspot-door", type: "toggle", flag: "doorOpen" });
+            onAnnounce(
+              opening
+                ? "The door swings open onto the hallway."
+                : "The door closes with a soft click.",
+            );
             break;
           }
           case "curtains": {
@@ -950,7 +1028,9 @@ export const ExploreStage = forwardRef<ExploreHandle, ExploreStageProps>(
               data-hotspot={id}
               aria-label={
                 character
-                  ? `Ask ${titleCase(id)} to wave`
+                  ? world.interaction.kind === "dance"
+                    ? `Ask ${titleCase(id)} to stop dancing`
+                    : `Dance with ${titleCase(id)}`
                   : `Interact with ${id}`
               }
               onPointerEnter={() => setHovered(id)}
@@ -967,7 +1047,11 @@ export const ExploreStage = forwardRef<ExploreHandle, ExploreStageProps>(
                 className={`hotspot-label${hovered === id ? " is-visible" : ""}`}
                 aria-hidden="true"
               >
-                {character ? `Wave to ${titleCase(id)}` : hotspotLabel(id)}
+                {character
+                  ? world.interaction.kind === "dance"
+                    ? `Stop dancing with ${titleCase(id)}`
+                    : `Dance with ${titleCase(id)}`
+                  : hotspotLabel(id)}
               </span>
             </button>
           );

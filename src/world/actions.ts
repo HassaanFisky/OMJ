@@ -81,7 +81,16 @@ export const CAMERA_PRESETS: Record<
    * bed. Two named poses, chosen by state, is the honest model.
    */
   bed: { yaw: -156, pitch: 22, distance: 680 },
-  bedAction: { yaw: -148, pitch: 16, distance: 370 },
+  /*
+   * `bedAction` frames the mattress *across* its width.
+   *
+   * The bed is 394 long and 260 wide, and the pair now lie head-to-toe along
+   * its length. A camera looking down that length — which is what -148 did —
+   * projected the two bodies straight onto each other, so two perfectly
+   * separate plushies looked like one pile. Viewing across the width separates
+   * them on screen and also keeps the headboard and the quilt edge in shot.
+   */
+  bedAction: { yaw: -96, pitch: 20, distance: 430 },
   vanity: { yaw: 102, pitch: 6, distance: 470 },
   // The shelf wall is close behind the pivot: 276 is the longest radius the
   // wall allows at this bearing, so asking for more would push through it.
@@ -305,13 +314,41 @@ export const BED_ACTIONS: Record<"sit" | "lie" | "rest" | "together", BedPose> =
     mochi: { yaw: 96, seated: 1, lie: 0, x: 600, z: 66 },
     yume: { yaw: 84, seated: 1, lie: 0, x: 612, z: -66, expression: "calm" },
   },
+  /*
+   * Sleeping positions.
+   *
+   * The mattress is 260 units across the bed's width and 394 along its length,
+   * and a plush occupies ~163 units, so two of them simply cannot lie side by
+   * side across it — the previous z values (60 and -62) put them 122 apart,
+   * which is why they ended up piled on top of each other and clipping through
+   * the quilt.
+   *
+   * The only composition that works in this bed is head-to-toe along its
+   * length: Mochi toward the headboard, Yume toward the foot, both on the same
+   * mattress with a real gap between them. The rig's recline already rotates by
+   * opposite signs per character, so the two read as facing opposite ways
+   * without any extra work.
+   *
+   *   mattress x 476..708 (centre 592), z -246..148
+   */
   lie: {
-    mochi: { yaw: 96, seated: 1, lie: 1, x: 596, z: 60 },
-    yume: { yaw: 84, seated: 1, lie: 1, x: 606, z: -62, expression: "sleepy" },
+    /*
+     * Reclining rotates the rig about its feet, which throws the body sideways
+     * across the bed — Mochi's position is therefore nudged toward the bed's
+     * centre line (anchor x 592) so the *body*, not the feet, ends up centred
+     * on the mattress. Yume reclines the other way and needs the opposite
+     * correction.
+     */
+    mochi: { yaw: 96, seated: 1, lie: 1, x: 544, z: -128 },
+    yume: { yaw: 84, seated: 1, lie: 1, x: 640, z: 100, expression: "sleepy" },
   },
+  /*
+   * Rest is the same head-to-toe arrangement, propped rather than flat, so the
+   * two poses belong to one family instead of moving everyone in the room.
+   */
   rest: {
-    mochi: { yaw: 96, seated: 1, lie: 0.5, x: 598, z: 64 },
-    yume: { yaw: 88, seated: 1, lie: 0.35, x: 610, z: -64, expression: "sleepy" },
+    mochi: { yaw: 96, seated: 1, lie: 0.55, x: 550, z: -118 },
+    yume: { yaw: 88, seated: 1, lie: 0.4, x: 636, z: 92, expression: "sleepy" },
   },
   together: {
     // Turned toward each other, shoulders almost touching: the pair sits as a
@@ -325,11 +362,26 @@ export type WorldAction =
   | { id: string; type: "setMode"; mode: WorldState["mode"] }
   | { id: string; type: "setWeather"; condition: WeatherCondition; intensity?: number }
   | { id: string; type: "setAtmosphere"; atmosphere: Atmosphere }
+  /**
+   * Adopt the visitor's real local time and weather.
+   *
+   * Separate from `setWeather`/`setAtmosphere` on purpose: those express what
+   * the *visitor* asked for and always win, while this one is ambient context
+   * and must yield. Encoding that in the action type is what makes the
+   * isolation a property of the reducer instead of a convention callers have
+   * to remember.
+   */
+  | {
+      id: string;
+      type: "adoptEnvironment";
+      atmosphere: Atmosphere;
+      condition: WeatherCondition;
+    }
   | { id: string; type: "setLamp"; kerosene?: number; kelvin?: number }
   | {
       id: string;
       type: "toggle";
-      flag: "fairyLights" | "candle" | "cove" | "globeOpen" | "giftOpen";
+      flag: "fairyLights" | "candle" | "cove" | "globeOpen" | "giftOpen" | "doorOpen";
     }
   | { id: string; type: "setCurtains"; open: number }
   | {
@@ -353,6 +405,14 @@ export type WorldAction =
       preset?: HugPreset;
     }
   | { id: string; type: "bed"; action: "sit" | "lie" | "rest" | "together" | "rise" }
+  /**
+   * Start the pair dancing, or stop it.
+   *
+   * `dance` is a first-class interaction rather than a pile of gesture flags:
+   * it shares the one progress clock, the one reducer and the one choreography
+   * module with the hug, so it cannot drift out of sync with anything else.
+   */
+  | { id: string; type: "dance"; on: boolean }
   | {
       id: string;
       /**
@@ -623,6 +683,13 @@ export function applyWorldAction(prev: WorldState, action: WorldAction): WorldSt
 
     case "setWeather": {
       const condition = action.condition;
+      /*
+       * Claim the field. Only the *user* dispatches this action — the adoption
+       * of the visitor's real weather goes through `adoptEnvironment`, which
+       * refuses to write once this flag is set. Provenance lives with the data
+       * it describes, so there is no second registry to fall out of sync.
+       */
+      state.intent = { ...state.intent, weather: true };
       const intensity =
         condition === "rain" || condition === "snow"
           ? clamp(action.intensity ?? 0.85, 0.15, 1)
@@ -643,7 +710,44 @@ export function applyWorldAction(prev: WorldState, action: WorldAction): WorldSt
       break;
     }
 
+    case "adoptEnvironment": {
+      /*
+       * Ambient context, applied only to fields the visitor has not claimed.
+       * This runs at most once, when the device context arrives, and it can
+       * never undo a choice: if they have touched the weather, the weather is
+       * theirs, full stop.
+       */
+      if (!state.intent.atmosphere) {
+        state.time = {
+          atmosphere: action.atmosphere,
+          daylight: daylightForAtmosphere(action.atmosphere),
+        };
+      }
+      if (!state.intent.weather) {
+        const condition = action.condition;
+        const intensity =
+          condition === "rain" || condition === "snow"
+            ? 0.85
+            : 0;
+        state.weather = {
+          condition,
+          intensity,
+          clouds:
+            condition === "rain"
+              ? clamp(0.55 + intensity * 0.45, 0, 1)
+              : condition === "snow"
+                ? clamp(0.4 + intensity * 0.4, 0, 1)
+                : condition === "cloudy"
+                  ? 0.6
+                  : 0,
+          wind: state.weather.wind,
+        };
+      }
+      break;
+    }
+
     case "setAtmosphere": {
+      state.intent = { ...state.intent, atmosphere: true };
       state.time = {
         atmosphere: action.atmosphere,
         daylight: daylightForAtmosphere(action.atmosphere),
@@ -662,7 +766,18 @@ export function applyWorldAction(prev: WorldState, action: WorldAction): WorldSt
     }
 
     case "toggle": {
-      if (action.flag === "globeOpen" || action.flag === "giftOpen") {
+      if (action.flag === "doorOpen") {
+        /*
+         * A toggle on a fraction: anything more than half open shuts, anything
+         * else opens. The *travel* is animated later, so clicking twice in
+         * quick succession reverses the swing from wherever it currently is
+         * instead of snapping the leaf back to shut.
+         */
+        state.props = {
+          ...state.props,
+          doorOpen: state.props.doorOpen > 0.5 ? 0 : 1,
+        };
+      } else if (action.flag === "globeOpen" || action.flag === "giftOpen") {
         state.props = { ...state.props, [action.flag]: !state.props[action.flag] };
       } else {
         state.lamp = { ...state.lamp, [action.flag]: !state.lamp[action.flag] };
@@ -739,6 +854,60 @@ export function applyWorldAction(prev: WorldState, action: WorldAction): WorldSt
       break;
     }
 
+    case "dance": {
+      if (!action.on) {
+        /*
+         * Stopping is a graceful return, never a cut: the pair keeps their
+         * held pose and the interaction unwinds through its own release phase,
+         * so hands part and bodies step back instead of teleporting home.
+         */
+        if (state.interaction.kind === "dance") {
+          state.characters = {
+            mochi: { ...state.characters.mochi, gaze: "viewer" },
+            yume: { ...state.characters.yume, gaze: "viewer" },
+          };
+          /*
+           * Arm the unwind. This is deliberately *not* `phase: "release"`:
+           * `phase` is re-derived from `progress` on the next tick, which threw
+           * the request away and left the pair dancing forever. Starting the
+           * release clock is what actually stops them.
+           */
+          state.interaction = {
+            ...state.interaction,
+            release: state.interaction.release ?? 0,
+          };
+        }
+        break;
+      }
+
+      state.interaction = {
+        kind: "dance",
+        preset: null,
+        bedPose: null,
+        progress: 0,
+        elapsed: 0,
+        phase: "notice",
+        release: null,
+      };
+      state.characters = {
+        mochi: {
+          ...state.characters.mochi,
+          gaze: "yume",
+          expression: "happy",
+          seated: 0,
+          lie: 0,
+        },
+        yume: {
+          ...state.characters.yume,
+          gaze: "mochi",
+          expression: "happy",
+          seated: 0,
+          lie: 0,
+        },
+      };
+      break;
+    }
+
     case "hug": {
       const preset: HugPreset = action.preset ?? state.interaction.preset ?? "gentle";
       const spec = HUG_SPECS[preset];
@@ -749,6 +918,7 @@ export function applyWorldAction(prev: WorldState, action: WorldAction): WorldSt
         progress: 0,
         elapsed: 0,
         phase: "notice",
+        release: null,
       };
       // The *targets* are authoritative; the engine eases toward them, and
       // `hugChoreography` re-derives the reach/contact offsets from the single
@@ -796,6 +966,7 @@ export function applyWorldAction(prev: WorldState, action: WorldAction): WorldSt
         progress: 0,
         elapsed: 0,
         phase: "notice",
+        release: null,
       };
       /*
        * Sitting or lying down also frames the shot. The pair has just walked
@@ -951,6 +1122,9 @@ export function describeAction(action: WorldAction): string {
         day: "Morning light fills the room.",
       }[action.atmosphere];
     }
+    case "adoptEnvironment": {
+      return "The room takes on the light outside.";
+    }
     case "setLamp": {
       if (action.kelvin !== undefined && action.kerosene === undefined) {
         return action.kelvin >= 3400 ? "The lamp turns cooler." : "The lamp turns warmer.";
@@ -989,6 +1163,12 @@ export function describeAction(action: WorldAction): string {
     case "hug": {
       const name = action.preset ? HUG_LABELS[action.preset] : "a hug";
       return `Mochi and Yume share ${name}.`;
+    }
+
+    case "dance": {
+      return action.on
+        ? "Mochi and Yume take each other's paws and start to sway."
+        : "The dance winds down and they settle together.";
     }
     case "bed": {
       return {

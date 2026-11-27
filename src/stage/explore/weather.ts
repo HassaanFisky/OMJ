@@ -72,9 +72,41 @@ export function createWeatherPainter(): WeatherPainter {
 
       if (windowRect && input.windowVisible && condition !== "clear") {
         ctx.save();
+        /*
+         * Clip to the glass, not to the opening's bounding box. The box also
+         * covers the mullions and the wall reveal, so clipping to it let rain
+         * streak across the curtains and the plaster.
+         */
+        /*
+         * Clip to the glass only. Precipitation is then erased where a curtain
+         * panel covers the pane (see the destination-out pass below).
+         *
+         * This canvas is an overlay above the whole room, so anything painted
+         * inside the pane rectangles also lands on top of any fabric hanging in
+         * front of the glass. Erasing afterwards is the only way to express
+         * "pane minus curtain" here: an even-odd clip cannot do it, because a
+         * curtain rectangle that overhangs the opening would flip back to
+         * *included* and paint weather onto the wall.
+         */
         ctx.beginPath();
-        ctx.roundRect(windowRect.x, windowRect.y, windowRect.width, windowRect.height, 18);
+        for (const pane of windowRect.panes) {
+          ctx.rect(pane.x, pane.y, pane.width, pane.height);
+        }
         ctx.clip();
+
+        /*
+         * Clouds first, then precipitation in front of them — the order a
+         * viewer's eye expects, and the reason rain reads as falling *through*
+         * weather rather than over a flat sky.
+         *
+         * Clouds are drawn from `world.weather.clouds`, which is why they now
+         * survive night: the sky gradient goes dark, but the cloud layer is a
+         * separate pass with its own moonlit edges, so an overcast night still
+         * reads as overcast instead of clearing itself.
+         */
+        if (world.weather.clouds > 0.01) {
+          drawClouds(ctx, windowRect, time, world.weather.clouds, reduced);
+        }
 
         if (condition === "rain") {
           drawRain(ctx, windowRect, time, intensity, reduced);
@@ -88,6 +120,20 @@ export function createWeatherPainter(): WeatherPainter {
         haze.addColorStop(1, rgba(condition === "snow" ? "#cfe2ff" : "#8fa8cc", 0.1 * intensity));
         ctx.fillStyle = haze;
         ctx.fillRect(windowRect.x, windowRect.y, windowRect.width, windowRect.height);
+
+        /*
+         * Punch the curtains back out of the weather. `destination-out` clears
+         * whatever the passes above drew, so the fabric stays opaque and "closed
+         * curtains hide the exterior" holds for rain, snow and clouds alike.
+         */
+        if (windowRect.curtains.length > 0) {
+          ctx.globalCompositeOperation = "destination-out";
+          ctx.fillStyle = "#000";
+          for (const panel of windowRect.curtains) {
+            ctx.fillRect(panel.x, panel.y, panel.width, panel.height);
+          }
+          ctx.globalCompositeOperation = "source-over";
+        }
 
         ctx.restore();
       }
@@ -129,6 +175,87 @@ function drawRain(
     ctx.moveTo(x, y);
     ctx.lineTo(x - length * 0.18, y + length);
     ctx.stroke();
+  }
+}
+
+/**
+ * Exterior cloud banks.
+ *
+ * A cloud is not a row of circles — it is a lumpy mass with a flat base and a
+ * domed top. So each one is built from overlapping lobes whose radii peak in
+ * the middle and taper at both ends, filled as a single compound path. A
+ * second, lighter copy clipped to its own crown supplies the moonlit top edge
+ * without drawing a visible outline.
+ *
+ * Three bands at different depths: the far ones drift slower and sit fainter,
+ * which is the only real cue for distance inside a window this shallow.
+ *
+ * Save/restore is balanced per crown pass and nowhere else. The caller owns the
+ * pane clip; an unbalanced `restore()` here used to pop it, which let the rain
+ * pass paint straight over the curtains.
+ */
+function drawClouds(
+  ctx: CanvasRenderingContext2D,
+  rect: WindowRect,
+  time: number,
+  density: number,
+  reduced: boolean,
+) {
+  const drift = reduced ? 0 : time * 4;
+  const bands = [
+    { y: 0.2, scale: 1.05, alpha: 0.8, speed: 1.0 },
+    { y: 0.42, scale: 0.8, alpha: 0.58, speed: 1.8 },
+    { y: 0.62, scale: 0.6, alpha: 0.4, speed: 2.7 },
+  ];
+
+  /** One cumulus: flat base, domed top, tapering shoulders. */
+  const cloudPath = (
+    cx: number,
+    baseY: number,
+    width: number,
+    height: number,
+    lobes: number,
+  ) => {
+    ctx.beginPath();
+    for (let i = 0; i < lobes; i += 1) {
+      const t = i / (lobes - 1);
+      const dome = Math.sin(Math.PI * Math.min(1, t * 0.92 + 0.04));
+      const r = height * (0.34 + dome * 0.66);
+      const lx = cx - width / 2 + t * width;
+      const ly = baseY - r * 0.92;
+      ctx.moveTo(lx + r, ly);
+      ctx.arc(lx, ly, r, 0, Math.PI * 2);
+    }
+    // Flat underside so the bank sits on a horizon instead of floating.
+    ctx.rect(cx - width / 2, baseY - 1, width, 2);
+  };
+
+  for (const [index, band] of bands.entries()) {
+    const span = rect.width * 1.6;
+    const offset = ((drift * band.speed + index * 191) % span) - span / 2;
+    const cloudW = rect.width * 0.8 * band.scale;
+    const cloudH = rect.height * 0.17 * band.scale;
+    const baseY = rect.y + rect.height * band.y + cloudH * 1.1;
+
+    for (let repeat = -1; repeat <= 1; repeat += 1) {
+      const cx = rect.x + rect.width / 2 + offset + repeat * span;
+
+      /*
+       * Clouds sit *lighter* than the sky, day or night — that is what makes
+       * them legible. A dark cloud on a dark sky is invisible; the first pass
+       * drew them dark and read as nothing at all.
+       */
+      cloudPath(cx, baseY, cloudW, cloudH, 7);
+      ctx.fillStyle = `rgba(176, 178, 210, ${band.alpha * density * 0.62})`;
+      ctx.fill();
+
+      ctx.save();
+      cloudPath(cx, baseY - cloudH * 0.16, cloudW * 0.97, cloudH * 0.9, 7);
+      ctx.clip();
+      ctx.fillStyle = `rgba(234, 235, 250, ${0.5 * band.alpha * density})`;
+      ctx.fillRect(cx - cloudW, baseY - cloudH * 1.8, cloudW * 2, cloudH * 1.1);
+      ctx.restore();
+    }
   }
 }
 

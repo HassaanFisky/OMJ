@@ -160,10 +160,21 @@ describe("deterministic rendering", () => {
     film.dispose();
   });
 
-  it("finishes at the actual duration", () => {
+  it("finishes at the actual duration with the final frame still visible", () => {
     const film = new FilmEngine(initialScore, 161.332);
+    const final = film.sample(161.332, false);
 
-    expect(film.sample(161.332, false).env.alpha).toBe(0);
+    /*
+     * The film used to black itself out on the very last frame. That was fine
+     * when the ending was a fade to nothing, but the ending is now a
+     * composition that has to survive to be seen: the complete bedroom sealed
+     * in a glass bubble. A self-imposed fade here would delete it, so the
+     * picture must stay fully opaque and the glass must be fully formed.
+     */
+    expect(final.env.alpha).toBe(1);
+    expect(final.env.roomFrame).toBe(1);
+    expect(final.env.bubble).toBe(1);
+
     film.dispose();
   });
 

@@ -107,6 +107,15 @@ export function IntroScreen({
         </button>
       </div>
 
+      {/*
+        Opening brand signature. One quiet line, once, at the very start of the
+        film — then gone. It fades on a slow curve after the title has settled
+        so it reads as a signature on a title card, never as a watermark.
+      */}
+      <p className="entrance-signature" aria-hidden="true">
+        It&rsquo;s not a video. It&rsquo;s code.
+      </p>
+
       {/* Discreet corner controls */}
       <div className="entrance-corner-tools">
         <label className="corner-icon-button file-control" title="Choose or change audio file">
@@ -296,15 +305,6 @@ export function AudioPlayer({
 
         <button
           className="icon-button"
-          onClick={onReplay}
-          aria-label="Replay"
-          disabled={!ready}
-        >
-          <Icon name="replay" />
-        </button>
-
-        <button
-          className="icon-button"
           onClick={onTranscript}
           aria-label="Lyrics transcript"
         >
@@ -319,6 +319,13 @@ export function AudioPlayer({
           <Icon name="close" />
         </button>
       </div>
+
+      {/*
+        The brand signature sits directly under the control row and is part of
+        the same corner composition: the controls read as a small plate above a
+        quiet typographic line, not as a toolbar with a watermark attached.
+      */}
+      <p className="player-signature">It&rsquo;s not a video. It&rsquo;s all code.</p>
     </section>
   );
 }

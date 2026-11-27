@@ -135,38 +135,21 @@ test("hotspots respond and describe their effect", async ({ page }) => {
   await expect(page.locator(".app-announcer")).toContainText(/Mochi waves/i);
 });
 
-test("natural language commands change the world and stay honest", async ({ page }) => {
+test("the free-text command interface is gone, and the room still responds", async ({ page }) => {
   await enterRoom(page);
 
-  const input = page.getByPlaceholder("Tell the room what to do…");
+  // The "Tell the room what to do" bar was deliberately removed; the room is
+  // driven by the HUD and the hotspots instead. Guard against it creeping back.
+  await expect(page.getByPlaceholder("Tell the room what to do…")).toHaveCount(0);
+  await expect(page.locator(".command-feedback")).toHaveCount(0);
 
-  await input.fill("let it snow");
-  await input.press("Enter");
+  // The capability it used to expose must still work through the real controls.
+  await page.getByRole("complementary", { name: "Room atmosphere" })
+    .getByRole("button", { name: "Snow", exact: true }).click();
   await expect(page.locator(".explore-stage")).toHaveAttribute(
     "data-explore-weather",
     "snow",
   );
-  await expect(page.locator(".command-feedback")).toContainText(/snow/i);
-
-  await input.fill("open the curtains");
-  await input.press("Enter");
-  await expect(page.locator(".command-feedback")).toContainText(/curtains/i);
-
-  // An unsupported request must be reported, never silently "executed".
-  await input.fill("order me a pizza");
-  await input.press("Enter");
-  await expect(page.locator(".command-feedback")).toHaveAttribute("data-tone", "warn");
-  await expect(page.locator(".command-feedback")).toContainText(/can't do/i);
-});
-
-test("command help discloses the local, limited understanding", async ({ page }) => {
-  await enterRoom(page);
-
-  await page.getByRole("button", { name: "?", exact: true }).click();
-  const panel = page.getByRole("dialog", { name: "Room requests" });
-  await expect(panel).toBeVisible();
-  await expect(panel).toContainText(/no language model/i);
-  await expect(panel).toContainText(/no network call/i);
 });
 
 test("the film and the room hand over cleanly in both directions", async ({ page }) => {
@@ -239,7 +222,7 @@ test("every hotspot is reachable by keyboard with a visible label", async ({ pag
   }
 });
 
-test("no console errors while exploring and commanding", async ({ page }) => {
+test("no console errors while exploring and using the room", async ({ page }) => {
   const errors: string[] = [];
   page.on("console", (message) => {
     if (message.type() === "error") errors.push(message.text());
@@ -248,10 +231,14 @@ test("no console errors while exploring and commanding", async ({ page }) => {
 
   await enterRoom(page);
 
-  const input = page.getByPlaceholder("Tell the room what to do…");
-  for (const command of ["let it snow", "make it night", "open the curtains", "make them hug"]) {
-    await input.fill(command);
-    await input.press("Enter");
+  // Exercise the real controls that replaced the removed command bar.
+  const hud = page.getByRole("complementary", { name: "Room atmosphere" });
+  for (const label of ["Snow", "Night", "Day"]) {
+    await hud.getByRole("button", { name: label, exact: true }).click();
+  }
+  for (const chip of ["Lamp", "Window", "Bed"]) {
+    const button = page.locator("button.camera-chip", { hasText: chip }).first();
+    if (await button.count()) await button.click();
   }
 
   const box = await page.locator(".explore-stage").boundingBox();

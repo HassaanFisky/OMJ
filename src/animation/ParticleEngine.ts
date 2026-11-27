@@ -339,39 +339,6 @@ export function createParticleEngine(canvas: HTMLCanvasElement) {
     void env;
   }
 
-  function drawSnowGlobeSnow(
-    time: number,
-    reduced: boolean,
-    globeReveal: number,
-    viewBox: ViewBox,
-  ) {
-    if (reduced || globeReveal <= 0.02) return;
-    // Globe sits centered on current viewBox during tail pull-back
-    const cx = viewBox.x + viewBox.width / 2;
-    const cy = viewBox.y + viewBox.height * 0.48;
-    const r = Math.min(viewBox.width, viewBox.height) * 0.34;
-
-    ctx.save();
-    ctx.beginPath();
-    ctx.arc(cx, cy, r, 0, Math.PI * 2);
-    ctx.clip();
-
-    ctx.fillStyle = "#fff7ef";
-    for (let i = 0; i < 48; i++) {
-      const seed = random(i + 1300);
-      const sx =
-        cx - r + ((random(i + 1400) * r * 2 + Math.sin(time * 0.6 + i) * 14) % (r * 2));
-      const sy =
-        cy - r + ((random(i + 1500) * r * 2 + time * (26 + seed * 22)) % (r * 2));
-
-      ctx.globalAlpha = globeReveal * (0.35 + seed * 0.45);
-      ctx.beginPath();
-      ctx.arc(sx, sy, 1.5 + seed * 2.2, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    ctx.restore();
-  }
-
   function draw(
     frame: Frame,
     time: number,
@@ -394,12 +361,6 @@ export function createParticleEngine(canvas: HTMLCanvasElement) {
 
     drawExteriorWeather(frame, time, reduced, env);
     drawInteriorDetails(frame, time, reduced, env);
-
-    const globeReveal =
-      frame.action === "tail"
-        ? Math.min(1, Math.max(0, (0.94 - frame.env.zoom) / 0.25))
-        : 0;
-    drawSnowGlobeSnow(time, reduced, globeReveal, viewBox);
 
     ctx.globalAlpha = 1;
   }
